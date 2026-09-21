@@ -1,0 +1,254 @@
+{
+  "entities": {
+    "family": {
+      "title": "Family",
+      "description": "Represents a family unit.",
+      "type": "object",
+      "properties": {
+        "familyName": {
+          "type": "string",
+          "maxLength": 100,
+          "pattern": "^[a-zA-Z0-9_\\\\-\\\\s]+$"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp in ms"
+        }
+      },
+      "required": ["familyName", "createdAt"]
+    },
+    "userProfile": {
+      "title": "User Profile",
+      "description": "Profile data for a user in a family.",
+      "type": "object",
+      "properties": {
+        "familyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "firstName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "member", "child"]
+        },
+        "preferences": {
+          "type": "object",
+          "description": "User preferences like avoid_colors, fit_preference"
+        },
+        "createdAt": {
+          "type": "number"
+        }
+      },
+      "required": ["familyId", "firstName", "role", "createdAt"]
+    },
+    "garment": {
+      "title": "Garment",
+      "description": "A single piece of clothing.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "familyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "imageUrl": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "category": {
+          "type": "string",
+          "enum": ["top", "bottom", "outerwear", "footwear", "accessory"]
+        },
+        "subCategory": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "primaryColorName": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "primaryColorHex": {
+          "type": "string",
+          "maxLength": 7,
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "accentColors": {
+          "type": "array"
+        },
+        "pattern": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "material": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "fit": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "designDetails": {
+          "type": "array"
+        },
+        "formalityScore": {
+          "type": "number"
+        },
+        "thermalWeight": {
+          "type": "number"
+        },
+        "weatherSuitability": {
+          "type": "array"
+        },
+        "isLaundry": {
+          "type": "boolean"
+        },
+        "isUserModified": {
+          "type": "boolean"
+        },
+        "purchasePrice": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "ownerId", "familyId", "imageUrl", "category", "subCategory", 
+        "primaryColorName", "primaryColorHex", "formalityScore", "thermalWeight",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "outfitSession": {
+      "title": "Outfit Session",
+      "description": "A generated recommendation session.",
+      "type": "object",
+      "properties": {
+        "familyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "creatorId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "occasionPrompt": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "weatherSnapshot": {
+          "type": "object"
+        },
+        "groupHarmonyRationale": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "createdAt": {
+          "type": "number"
+        }
+      },
+      "required": ["familyId", "creatorId", "occasionPrompt", "weatherSnapshot", "createdAt"]
+    },
+    "outfitAssignment": {
+      "title": "Outfit Assignment",
+      "description": "An outfit assigned to a specific user within a session.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "familyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "topId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "bottomId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "outerwearId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "footwearId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "accessoryIds": {
+          "type": "array"
+        },
+        "memberRationale": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "number"
+        }
+      },
+      "required": ["sessionId", "userId", "familyId", "createdAt"]
+    },
+    "garmentWear": {
+      "title": "Garment Wear",
+      "description": "A record of a garment being worn.",
+      "type": "object",
+      "properties": {
+        "garmentId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "wornDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^\\\\d{4}-\\\\d{2}-\\\\d{2}$"
+        }
+      },
+      "required": ["garmentId", "userId", "wornDate"]
+    }
+  },
+  "firestore": {
+    "/families/{familyId}": {
+      "schema": { "$ref": "#/entities/family" },
+      "description": "Root collection for families."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/userProfile" },
+      "description": "User profiles. The document ID must match the Firebase Auth UID."
+    },
+    "/garments/{garmentId}": {
+      "schema": { "$ref": "#/entities/garment" },
+      "description": "Garments owned by users."
+    },
+    "/outfitSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/outfitSession" },
+      "description": "Saved outfit recommendation sessions."
+    },
+    "/outfitAssignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/outfitAssignment" },
+      "description": "Individual outfit recommendations linked to a session."
+    },
+    "/garmentWears/{wearId}": {
+      "schema": { "$ref": "#/entities/garmentWear" },
+      "description": "Logs of when garments were worn."
+    }
+  }
+}

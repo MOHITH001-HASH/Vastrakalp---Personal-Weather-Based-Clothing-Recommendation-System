@@ -1,0 +1,189 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidFamily(data) {
+      return data.keys().hasAll(['familyName', 'createdAt'])
+        && data.keys().size() == 2
+        && data.familyName is string && data.familyName.size() <= 100
+        && data.createdAt is number;    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['familyId', 'firstName', 'role', 'createdAt'])
+        && data.keys().size() >= 4 && data.keys().size() <= 5
+        && data.familyId is string && data.familyId.size() <= 128
+        && data.firstName is string && data.firstName.size() <= 100
+        && data.role is string && (data.role == 'admin' || data.role == 'member' || data.role == 'child')
+        && data.createdAt is number
+        && (!('preferences' in data) || data.preferences is map);
+    }
+    
+    function isValidGarment(data) {
+      return data.keys().hasAll(['ownerId', 'familyId', 'imageUrl', 'category', 'subCategory', 'primaryColorName', 'primaryColorHex', 'formalityScore', 'thermalWeight', 'createdAt', 'updatedAt'])
+        && data.keys().size() >= 10 && data.keys().size() <= 30
+        && data.ownerId is string && data.ownerId.size() <= 128
+        && data.familyId is string && data.familyId.size() <= 128
+        && data.imageUrl is string && data.imageUrl.size() <= 1048576
+        && data.category is string && (data.category == 'top' || data.category == 'bottom' || data.category == 'outerwear' || data.category == 'footwear' || data.category == 'accessory' || data.category == 'suit' || data.category == 'kurta_set' || data.category == 'tuxedo' || data.category == 'co_ord_set')
+        && data.subCategory is string && data.subCategory.size() <= 50
+        && data.primaryColorName is string && data.primaryColorName.size() <= 50
+        && data.primaryColorHex is string && data.primaryColorHex.matches('^#[0-9A-Fa-f]{6}$') && data.primaryColorHex.size() == 7
+        && data.formalityScore is number && data.formalityScore >= 1 && data.formalityScore <= 5
+        && data.thermalWeight is number && data.thermalWeight >= 1 && data.thermalWeight <= 5
+        && data.createdAt is number
+        && data.updatedAt is number
+        && (!('accentColors' in data) || data.accentColors is list)
+        && (!('pattern' in data) || (data.pattern is string && data.pattern.size() <= 30))
+        && (!('material' in data) || (data.material is string && data.material.size() <= 50))
+        && (!('fit' in data) || (data.fit is string && data.fit.size() <= 30))
+        && (!('designDetails' in data) || data.designDetails is list)
+        && (!('weatherSuitability' in data) || data.weatherSuitability is list)
+        && (!('isLaundry' in data) || data.isLaundry is bool)
+        && (!('isUserModified' in data) || data.isUserModified is bool)
+        && (!('isFavorite' in data) || data.isFavorite is bool)
+        && (!('purchasePrice' in data) || data.purchasePrice is number)
+        && (!('name' in data) || (data.name is string && data.name.size() <= 200))
+        && (!('included_pieces' in data) || data.included_pieces is list)
+        && (!('styling_notes' in data) || (data.styling_notes is string && data.styling_notes.size() <= 2000));
+    }
+
+    function isValidOutfitSession(data) {
+      return data.keys().hasAll(['familyId', 'creatorId', 'occasionPrompt', 'weatherSnapshot', 'createdAt'])
+        && data.keys().size() >= 5 && data.keys().size() <= 6
+        && data.familyId is string && data.familyId.size() <= 128
+        && data.creatorId is string && data.creatorId.size() <= 128
+        && data.occasionPrompt is string && data.occasionPrompt.size() <= 500
+        && data.weatherSnapshot is map
+        && data.createdAt is number
+        && (!('groupHarmonyRationale' in data) || (data.groupHarmonyRationale is string && data.groupHarmonyRationale.size() <= 2000));
+    }
+
+    function isValidOutfitAssignment(data) {
+      return data.keys().hasAll(['sessionId', 'userId', 'familyId', 'createdAt'])
+        && data.keys().size() >= 4 && data.keys().size() <= 10
+        && data.sessionId is string && data.sessionId.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.familyId is string && data.familyId.size() <= 128
+        && data.createdAt is number
+        && (!('topId' in data) || (data.topId is string && data.topId.size() <= 128))
+        && (!('bottomId' in data) || (data.bottomId is string && data.bottomId.size() <= 128))
+        && (!('outerwearId' in data) || (data.outerwearId is string && data.outerwearId.size() <= 128))
+        && (!('footwearId' in data) || (data.footwearId is string && data.footwearId.size() <= 128))
+        && (!('accessoryIds' in data) || data.accessoryIds is list)
+        && (!('memberRationale' in data) || (data.memberRationale is string && data.memberRationale.size() <= 1000));
+    }
+
+    function isValidGarmentWear(data) {
+      return data.keys().hasAll(['garmentId', 'userId', 'wornDate'])
+        && data.keys().size() == 3
+        && data.garmentId is string && data.garmentId.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.wornDate is string && data.wornDate.matches('^\\d{4}-\\d{2}-\\d{2}$') && data.wornDate.size() == 10;
+    }
+
+    // A helper to check if a user is in a family. Only used for single-document operations!
+    function isUserInFamily(userId, familyId) {
+      return familyId != null && familyId != ''
+        && exists(/databases/$(database)/documents/users/$(userId))
+        && get(/databases/$(database)/documents/users/$(userId)).data.get('familyId', '') == familyId;
+    }
+
+    // Families
+    match /families/{familyId} {
+      allow get: if isSignedIn() && (isUserInFamily(request.auth.uid, familyId) || true);
+      allow create: if isSignedIn() && isValidFamily(incoming());
+      allow update: if isSignedIn() && isUserInFamily(request.auth.uid, familyId) 
+        && isValidFamily(incoming()) && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['familyName']);
+    }
+
+    // Users
+    match /users/{userId} {
+      allow get: if isSignedIn() && (userId == request.auth.uid || isUserInFamily(request.auth.uid, resource.data.get('familyId', '')));
+      allow list: if isSignedIn() && userId == request.auth.uid;
+      allow create: if isSignedIn() && userId == request.auth.uid && isValidUserProfile(incoming());
+      allow update: if isSignedIn() && userId == request.auth.uid 
+        && isValidUserProfile(incoming()) 
+        && incoming().familyId == existing().familyId
+        && incoming().role == existing().role
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'preferences']);
+    }
+
+    // Garments
+    match /garments/{garmentId} {
+      allow get: if isSignedIn() && (
+        resource.data.get('ownerId', '') == request.auth.uid
+        || resource.data.get('userId', '') == request.auth.uid
+        || (resource.data.get('familyId', '') != '' && isUserInFamily(request.auth.uid, resource.data.get('familyId', '')))
+      );
+      allow list: if isSignedIn() && (
+        resource.data.get('ownerId', '') == request.auth.uid
+        || resource.data.get('userId', '') == request.auth.uid
+      );
+      allow create: if isSignedIn() && isValidGarment(incoming())
+        && incoming().ownerId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        resource.data.get('ownerId', '') == request.auth.uid
+        || resource.data.get('userId', '') == request.auth.uid
+        || (resource.data.get('familyId', '') != '' && isUserInFamily(request.auth.uid, resource.data.get('familyId', '')))
+      ) && (
+        (isValidGarment(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().familyId == existing().familyId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['imageUrl', 'category', 'subCategory', 'primaryColorName', 'primaryColorHex', 'accentColors', 'pattern', 'material', 'fit', 'designDetails', 'formalityScore', 'thermalWeight', 'weatherSuitability', 'isLaundry', 'isUserModified', 'isFavorite', 'purchasePrice', 'updatedAt', 'name', 'included_pieces', 'styling_notes']))
+        ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['isFavorite', 'updatedAt']))
+      );
+      allow delete: if isSignedIn();
+    }
+
+    // Outfit Sessions
+    match /outfitSessions/{sessionId} {
+      allow get: if isSignedIn() && (
+        resource.data.get('creatorId', '') == request.auth.uid
+        || (resource.data.get('familyId', '') != '' && isUserInFamily(request.auth.uid, resource.data.get('familyId', '')))
+      );
+      allow list: if isSignedIn() && resource.data.creatorId == request.auth.uid;
+      allow create: if isSignedIn() && isValidOutfitSession(incoming())
+        && incoming().creatorId == request.auth.uid;
+      allow delete: if isSignedIn() && (
+        resource.data.get('creatorId', '') == request.auth.uid
+        || (resource.data.get('familyId', '') != '' && isUserInFamily(request.auth.uid, resource.data.get('familyId', '')))
+      );
+    }
+
+    // Outfit Assignments
+    match /outfitAssignments/{assignmentId} {
+      allow get: if isSignedIn() && (
+        resource.data.get('userId', '') == request.auth.uid
+        || (resource.data.get('familyId', '') != '' && isUserInFamily(request.auth.uid, resource.data.get('familyId', '')))
+      );
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidOutfitAssignment(incoming())
+        && (incoming().userId == request.auth.uid || isUserInFamily(request.auth.uid, incoming().familyId));
+      allow delete: if isSignedIn() && (
+        resource.data.get('userId', '') == request.auth.uid
+        || (resource.data.get('familyId', '') != '' && isUserInFamily(request.auth.uid, resource.data.get('familyId', '')))
+      );
+    }
+
+    // Garment Wears
+    match /garmentWears/{wearId} {
+      allow get: if isSignedIn() && resource.data.get('userId', '') == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidGarmentWear(incoming())
+        && incoming().userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.get('userId', '') == request.auth.uid;
+    }
+  }
+}
