@@ -1,69 +1,71 @@
-# Vastrakalp — AI-Powered Wardrobe Management & Multi-Person Styling Platform
+# Vastrakalp (वस्त्रकल्प) — AI-Powered Wardrobe Management & Multi-Person Styling Platform
 
-Vastrakalp is an enterprise-grade full-stack artificial intelligence application designed for smart wardrobe digitisation, intelligent garment taxonomy extraction, climate-adaptive daily styling, and family color-coordinated ensemble planning.
-
----
-
-## 1. Executive Summary
-
-Traditional digital wardrobe tools rely on manual tag entry and static categorization rules that fail when confronted with varying microclimates, thermal requirements, and multi-person event styling. Vastrakalp bridges this gap by integrating:
-
-- **Computer Vision Multimodal Analysis**: Automatically extracts category, sub-category, primary/accent colors, hex codes, pattern, formality score, and thermal weight from a single garment photograph.
-- **Microclimate & Weather Intelligence**: Integrates live geolocation-based meteorological data (temperature, apparent temperature, humidity, and precipitation probability) to ensure outfit recommendations match physical comfort thresholds.
-- **HueSync™ Color Coordination Engine**: Solves multi-attendee ensemble planning for events (e.g., weddings, family photoshoots, dinners) using color theory (monochromatic, analogous, complementary, triadic) and individual wardrobe isolation.
-- **Fail-Safe Adaptive Architecture**: Features an automated multi-tier AI model fallback pipeline coupled with a local deterministic rule-based matcher to ensure 100% operational uptime during rate limits or upstream service disruptions.
+Vastrakalp is a modern, full-stack artificial intelligence application engineered for intelligent wardrobe digitization, automated computer-vision garment taxonomy extraction, climate-adaptive daily styling, and family color-coordinated ensemble planning (HueSync™).
 
 ---
 
-## 2. Technology Stack
+## 1. Executive Overview
+
+Traditional digital wardrobe tools rely on tedious manual tag entry and static categorization rules that fail when confronted with varying microclimates, thermal requirements, and multi-person event styling. Vastrakalp solves this through a multi-tier AI and distributed systems architecture:
+
+- **Computer Vision Multimodal Analysis**: Automatically extracts category, sub-category, primary/accent colors, hex codes, pattern, formality score (1–5), and thermal weight (1–5) from a single garment photograph using Google Gemini Multimodal Foundation models.
+- **Microclimate & Weather Intelligence**: Ingests real-time atmospheric metrics (temperature, apparent heat index, humidity, precipitation probability, and WMO codes) to ensure outfit recommendations match physical comfort thresholds.
+- **HueSync™ Multi-Person Coordination Engine**: Solves multi-attendee ensemble planning for events (e.g., weddings, family photoshoots, festive gatherings, corporate dinners) using harmonic color theory (monochromatic, analogous, complementary, triadic) while preserving individual wardrobe isolation.
+- **Fail-Safe Adaptive Resilience**: Features a multi-tier AI model fallback pipeline coupled with an offline-capable deterministic rule-based matcher to ensure 100% operational uptime during rate limits or upstream API disruptions.
+
+---
+
+## 2. Technology Stack & Topology
 
 ### Frontend & Client Layer
 - **Framework**: React 19 with TypeScript 5.8
-- **Build System**: Vite 6 (SPA with Node.js backend integration)
-- **Styling**: Tailwind CSS v4
-- **State & Routing**: React Router v7, Custom React Hooks (`useAuth`, Firestore Listeners)
-- **Icons & Animation**: Lucide React, Motion (Framer Motion)
-- **Client Processing**: On-device Canvas and Web Workers for image preparation
+- **Build System**: Vite 6 (SPA with optimized client-side routing)
+- **Styling & Design System**: Tailwind CSS v4 with adaptive responsive layout
+- **State & Routing**: React Router v7, Custom React Hooks (`useAuth`, Real-time Firestore Listeners)
+- **Icons & Animation**: Lucide React, Motion (`motion/react`)
+- **Client Processing**: On-device Canvas and Web Workers for low-latency image pre-scaling and compression
 
-### Backend & API Layer
-- **Runtime**: Node.js 22 LTS with TypeScript via `tsx` / `esbuild`
-- **Web Server**: Express 4 with CORS and JSON payload limiters (50MB streaming buffer)
-- **Image Processing Engine**: Sharp (C++ libvips binding) for thumbnail generation, resizing (max 1024x1024), and WebP/JPEG compression
+### Backend & Serverless API Layer
+- **Runtime**: Node.js 22 LTS with TypeScript (`tsx` / `esbuild`)
+- **Server Framework**: Express 4 with modular sub-routers (`/api/v1/auth`, `/api/v1/garments`, `/api/v1/outfits`, `/api/v1/weather`)
+- **Serverless Architecture**: Native Vercel Serverless Function entry point (`/api/index.ts`) with `vercel.json` URL rewrites
+- **Image Optimization Pipeline**: Sharp (C++ libvips binding) for thumbnail generation, aspect-ratio preservation, and WebP/JPEG compression
 - **Authentication**: Firebase Admin SDK (Bearer JWT token verification)
-- **AI Core**: Google GenAI SDK (`@google/genai`) with Gemini Multimodal Models
+- **AI Core**: Google GenAI SDK (`@google/genai`) with Gemini Multimodal models and JSON schema enforcement
 
 ### Persistence & Security Layer
 - **Primary Database**: Google Cloud Firestore (NoSQL Document Store)
-- **Auth Provider**: Firebase Authentication (Email/Password, Token Exchange)
-- **Security Rules**: Granular user-level RBAC (`firestore.rules`) enforcing data isolation per `auth.uid`
+- **Auth Provider**: Firebase Authentication (Email/Password, Google OAuth Popup)
+- **Security Rules**: Granular user-level RBAC (`firestore.rules`) enforcing strict data isolation per `auth.uid`
 
 ---
 
 ## 3. Core Modules & Capabilities
 
-| Module | Location | Primary Responsibility |
+| Module | Route / File | Primary Responsibility |
 | :--- | :--- | :--- |
-| **Wardrobe Digitiser** | `/src/pages/AddGarment.tsx` | Photo upload, on-device pre-processing, AI vision extraction, manual attribute validation, and Firestore persistence. |
-| **Digital Closet** | `/src/pages/Closet.tsx` | Multi-criteria filtering (category, formality, color, family member, thermal weight), sorting, and garment lifecycle management. |
-| **Weather Stylist** | `/src/pages/Dashboard.tsx` | Real-time weather ingestion, daily vibe switching (`Casual Daily`, `Smart Casual`, `Relaxed Lounge`, `Active Outdoor`), and one-click wear logging. |
-| **Event & Group Planner** | `/src/pages/Planner.tsx` | Natural language event query processing, multi-attendee wardrobe allocation, color palette selection, and conflict-free ensemble generation. |
-| **Outfit Wear Tracker** | `/src/pages/Dashboard.tsx` | Historical timeline of worn items, frequency metrics, and wear logging via `garmentWears` collections. |
+| **Wardrobe Digitiser** | `/src/pages/AddGarment.tsx` | Photo capture/upload, on-device canvas pre-scaling, Gemini Vision extraction, interactive tag review, and Firestore persistence. |
+| **Digital Closet** | `/src/pages/Closet.tsx` | Multi-criteria filtering (category, formality, color, family member, thermal weight), search, and garment lifecycle management. |
+| **Weather Stylist** | `/src/pages/Dashboard.tsx` | Real-time atmospheric ingestion, daily vibe switching (`Casual Daily`, `Smart Casual`, `Relaxed Lounge`, `Active Outdoor`), and one-click wear logging. |
+| **HueSync™ Event Planner** | `/src/pages/Planner.tsx` | Natural language event query processing, multi-attendee wardrobe allocation, harmonic color palette selection, and conflict-free ensemble generation. |
+| **Outfit Wear Tracker** | `/src/pages/Dashboard.tsx` | Historical timeline of worn items, frequency metrics, and wear logging via `garmentWears` sub-collections. |
 
 ---
 
-## 4. System Architecture & Topology
+## 4. System Architecture & Request Lifecycle
 
 ```
 +-----------------------------------------------------------------------------------+
 |                                 CLIENT BROWSER                                    |
 |                                                                                   |
-|  [ React 19 UI ] <---> [ useAuth / State ] <---> [ Local Canvas / Sharp Pre-proc] |
+|  [ React 19 UI ] <---> [ useAuth / State ] <---> [ HTML5 Canvas Pre-Processing ]  |
 +------------------------------------+----------------------------------------------+
                                      |
                           HTTPS / REST API (JWT Bearer)
                                      |
 +------------------------------------v----------------------------------------------+
-|                              EXPRESS BACKEND                                      |
+|                         APPLICATION API GATEWAY                                   |
+|      (Vercel Serverless `/api/index.ts`  OR  Standalone Node `/server.ts`)        |
 |                                                                                   |
 |  +-----------------------------------------------------------------------------+  |
 |  | Request Router (/api/v1)                                                    |  |
@@ -93,35 +95,47 @@ Traditional digital wardrobe tools rely on manual tag entry and static categoriz
 
 ---
 
-## 5. API Endpoints
+## 5. Deployment Options
 
-### Authentication & Profile
-- `POST /api/v1/auth/sync`: Verifies Firebase JWT, bootstraps user profile in Firestore if absent, and returns synced metadata.
+### Option A: Vercel (Recommended — 100% Free Hobby Tier)
+1. Push this repository to **GitHub**.
+2. Go to [vercel.com](https://vercel.com) and log in with GitHub.
+3. Click **Add New... > Project** and select your `vastrakalp` repository.
+4. Set Environment Variables:
+   - `GEMINI_API_KEY`: Your Google Gemini API Key.
+   - `NODE_ENV`: `production`
+5. Click **Deploy**. Vercel will build the frontend via Vite and host the `/api` serverless backend automatically.
 
-### Garments
-- `POST /api/v1/garments/analyze`: Accepts multipart form image (`image/jpeg`, `image/png`, `image/webp`), processes via Sharp, and returns structured Gemini Vision attribute extraction (`GarmentAnalysisResult`).
-- `POST /api/v1/garments`: Validates and saves a new garment to the user's closet.
-- `GET /api/v1/garments`: Retrieves all garments associated with the authenticated user ID.
-- `DELETE /api/v1/garments/:id`: Deletes garment document and associated wear records.
+### Option B: Local / Self-Hosted Node.js Server
+```bash
+# 1. Install dependencies
+npm install
 
-### Outfits & AI Styling
-- `POST /api/v1/outfits/suggest`: Accepts event prompt, optional meteorological payload, and user garment pool. Returns a complete `HueSyncFamilyOutfitPlan` with color theory rationales, formality scores, and selected item IDs per attendee.
+# 2. Start development server (Node.js + Vite middleware on port 3000)
+npm run dev
 
-### Weather
-- `GET /api/v1/weather`: Fetches current temperature, apparent temperature, humidity, precipitation probability, and wind metrics from Open-Meteo for coordinates or city names.
-- `GET /api/v1/weather/search`: Auto-completes geographical queries for location selection.
+# 3. Build production bundle
+npm run build
+
+# 4. Start production server
+npm start
+```
 
 ---
 
-## 6. Environment Configuration
-
-Define the following keys in your environment (or `.env` file):
+## 6. Environment Configuration (`.env`)
 
 ```env
-# Google Gemini API Key (Server-Side Only)
+# ==========================================
+# Server-Side AI Secrets
+# ==========================================
 GEMINI_API_KEY=your_gemini_api_key_here
+NODE_ENV=production
+PORT=3000
 
-# Firebase Configuration
+# ==========================================
+# Client Firebase Config (Optional if firebase-applet-config.json exists)
+# ==========================================
 VITE_FIREBASE_API_KEY=your_firebase_api_key
 VITE_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=your_project_id
@@ -132,30 +146,7 @@ VITE_FIREBASE_APP_ID=your_app_id
 
 ---
 
-## 7. Build and Run Commands
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server (Node.js + Vite middleware on port 3000)
-npm run dev
-
-# Perform static type checking and linting
-npm run lint
-
-# Compile production bundle (Vite SPA + esbuild Node server)
-npm run build
-
-# Start compiled production server
-npm start
-```
-
----
-
-## 8. License & Security
-
-This project is configured with zero-trust client security:
-- All third-party credentials and AI API keys remain exclusively on the server runtime.
-- Client calls to `/api/v1/*` require Firebase ID Token verification via the Authorization header (`Bearer <token>`).
-- Database documents are protected by strict Firestore Security Rules restricting read/write access to the resource owner.
+## 7. Zero-Trust Security & Data Isolation
+- **Secret Isolation**: All AI keys (`GEMINI_API_KEY`) and Firebase Admin credentials remain strictly server-side.
+- **Token Verification**: All `/api/v1/*` endpoints require Firebase ID Token verification via the Authorization header (`Bearer <token>`).
+- **Data Boundary**: User records, garments, family profiles, and wear histories are partitioned per user UID and validated through Firestore Security Rules.

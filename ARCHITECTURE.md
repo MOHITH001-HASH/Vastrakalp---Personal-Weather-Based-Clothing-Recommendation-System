@@ -1,42 +1,44 @@
 # Vastrakalp — Technical Architecture & System Design Document
 
-This document provides a comprehensive technical reference of Vastrakalp's system architecture, AI orchestration pipelines, data schemas, security models, and operational workflows.
+This document serves as the authoritative architectural specification for Vastrakalp, detailing the end-to-end data pipelines, AI orchestration strategies, serverless and server topologies, resilience guarantees, and security policies.
 
 ---
 
-## 1. High-Level System Architecture
+## 1. High-Level System Architecture & Deployment Topology
 
-Vastrakalp adopts a modern, decoupled full-stack architecture combining a reactive TypeScript client with an Express API gateway, Google Cloud Firestore persistence, and Google Gemini Multimodal Foundation Models.
+Vastrakalp is designed with a hybrid deployment topology that supports both **Serverless Edge execution (Vercel)** and **Long-Running Monolithic Container execution (Node.js/Express)** without requiring codebase modifications.
 
 ```mermaid
 flowchart TB
     subgraph ClientLayer ["Client Presentation & State (React 19 / TypeScript)"]
         UI[User Interface & Pages]
-        AuthContext[useAuth & Firebase Auth]
-        ApiClient[Robust API Client with Auto-Retry & Warmup Handling]
-        CanvasProc[Client Image Resizer & Canvas Optimizer]
+        AuthContext[useAuth & Firebase Auth Context]
+        ApiClient[Robust API Client with Exponential Backoff]
+        CanvasProc[HTML5 Canvas Pre-Processing Worker]
     end
 
-    subgraph GatewayLayer ["Backend API Gateway (Node.js 22 / Express)"]
-        AuthMiddleware[JWT Bearer Auth Middleware]
-        RateLimiter[Rate & Exception Guard]
-        SharpEngine[Sharp Image Processor - 1024px / 80% JPEG]
-        WeatherAggregator[Open-Meteo Weather Aggregator & Cache]
+    subgraph EdgeGateway ["API Gateway & Routing Layer"]
+        VercelServerless["Vercel Serverless Function (/api/index.ts)"]
+        ExpressLocal["Standalone Express Instance (/server.ts)"]
+        AuthMiddleware["Firebase JWT Bearer Verification Middleware"]
+        RateLimiter["Rate Limiting & Safety Exception Trap"]
     end
 
-    subgraph AIEngine ["AI Orchestration Layer (Gemini SDK)"]
-        ModelRouter[Multi-Tier Model Router]
-        PromptBuilder[Structured Prompt & Schema Compiler]
-        SchemaValidator[Type-Safe JSON Schema Output Enforcer]
-        FallbackEngine[Algorithmic Deterministic Fallback Engine]
+    subgraph ServiceLayer ["Core Business Services"]
+        SharpEngine["Sharp Image Processor (1024x1024px @ 80% JPEG)"]
+        WeatherAggregator["Open-Meteo Meteorological Aggregator & Cache"]
+        HueSyncService["HueSync™ Multi-Person Harmony Engine"]
     end
 
-    subgraph PersistenceLayer ["Cloud Persistence (Google Firestore)"]
-        UsersCol[(users)]
-        GarmentsCol[(garments)]
-        FamilyCol[(familyMembers)]
-        WearsCol[(garmentWears)]
-        OutfitsCol[(outfits)]
+    subgraph AIEngine ["Multimodal AI & Fallback Pipeline"]
+        ModelRouter["Multi-Tier Foundation Model Router"]
+        PromptCompiler["Structured Prompt & JSON Schema Compiler"]
+        DeterministicFallback["Algorithmic Color & Thermal Rule Matcher"]
+    end
+
+    subgraph PersistenceLayer ["Persistence & Identity Layer (Google Cloud)"]
+        FirebaseAuth["Firebase Authentication (Google Identity)"]
+        FirestoreDB[("Cloud Firestore Document Store")]
     end
 
     UI --> AuthContext
@@ -44,71 +46,77 @@ flowchart TB
     UI --> CanvasProc
     CanvasProc --> ApiClient
 
-    ApiClient --> AuthMiddleware
-    AuthMiddleware --> GatewayLayer
-    GatewayLayer --> SharpEngine
-    GatewayLayer --> WeatherAggregator
+    ApiClient --> VercelServerless
+    ApiClient --> ExpressLocal
+    VercelServerless --> AuthMiddleware
+    ExpressLocal --> AuthMiddleware
+    AuthMiddleware --> RateLimiter
 
-    GatewayLayer --> ModelRouter
-    ModelRouter --> PromptBuilder
-    PromptBuilder --> SchemaValidator
-    SchemaValidator -.->|On Rate Limit / 429 / 503| FallbackEngine
+    RateLimiter --> SharpEngine
+    RateLimiter --> WeatherAggregator
+    RateLimiter --> HueSyncService
 
-    GatewayLayer --> PersistenceLayer
-    AuthContext --> UsersCol
+    HueSyncService --> ModelRouter
+    SharpEngine --> ModelRouter
+    ModelRouter --> PromptCompiler
+    PromptCompiler -.->|429 / 503 / Quota Exceeded| DeterministicFallback
+
+    AuthContext --> FirebaseAuth
+    VercelServerless --> FirestoreDB
+    ExpressLocal --> FirestoreDB
 ```
 
 ---
 
 ## 2. Garment Ingestion & Multimodal Vision Pipeline
 
-The garment digitization pipeline transforms unstandardized photographs into normalized, searchable, and stylable wardrobe objects.
+The garment digitization pipeline ingests raw, uncalibrated photographs and transforms them into standardized, queryable wardrobe entities:
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User as User / Camera
     participant UI as AddGarment.tsx
-    participant ClientCanvas as HTML5 Canvas / Worker
+    participant ClientCanvas as Client HTML5 Canvas
     participant API as /api/v1/garments/analyze
-    participant Sharp as Sharp Processor
+    participant Sharp as Sharp Engine
     participant Gemini as Gemini Vision (gemini-2.5-flash)
     participant Firestore as Cloud Firestore
 
-    User->>UI: Captures/Uploads Garment Photo
-    UI->>ClientCanvas: Pre-scales image to max 1200px width/height
-    ClientCanvas-->>UI: Optimized File Buffer
-    UI->>API: POST multipart/form-data (image + token)
-    API->>API: Verify Firebase JWT
-    API->>Sharp: Compress & normalize to 1024x1024 JPEG (quality: 80)
-    Sharp-->>API: Standardized Image Buffer (~60-150 KB)
+    User->>UI: Selects / Takes Photo of Garment
+    UI->>ClientCanvas: Pre-scales image to max 1200px dimension
+    ClientCanvas-->>UI: Optimized File Blob (~150-300 KB)
+    UI->>API: POST multipart/form-data (image + Firebase JWT)
+    API->>API: Verify Bearer ID Token
+    API->>Sharp: Normalize to 1024x1024 JPEG (quality: 80, EXIF auto-rotate)
+    Sharp-->>API: Normalized Image Buffer (~60-120 KB)
     API->>Gemini: generateContent with GarmentAnalysisSchema
     Note over API,Gemini: Extracts Category, Sub-Category, Primary & Accent Colors, Formality (1-5), Thermal Weight (1-5), Pattern
-    Gemini-->>API: Validated Structured JSON
-    API-->>UI: Return Attributes
-    UI->>User: Displays Preview & Extracted Tags for User Confirmation
+    Gemini-->>API: Validated JSON Object
+    API-->>UI: Returns Attribute Payload
+    UI->>User: Displays Extracted Attributes & Color Swatches for Confirmation
     User->>UI: Confirms / Edits Details
-    UI->>Firestore: addDoc to garments collection
-    Firestore-->>UI: Document ID Created
+    UI->>Firestore: addDoc to 'garments' collection
+    Firestore-->>UI: Garment Document Created
 ```
 
 ---
 
 ## 3. Real-Time Microclimate Context Engine
 
-Outfit selection strictly incorporates local meteorological variables. The weather service translates raw atmospheric metrics into wearable thermal recommendations.
+Outfit selection dynamically factors in local meteorological variables. The weather service translates raw atmospheric metrics into wearable thermal recommendations.
 
 ### Atmospheric Metrics Ingestion
 
 ```mermaid
 flowchart LR
     GPS[Client Geolocation / City Search] --> WeatherAPI[/api/v1/weather]
-    WeatherAPI --> OpenMeteo[Open-Meteo API Service]
+    WeatherAPI --> OpenMeteo[Open-Meteo Meteorological Service]
     OpenMeteo --> Parser[Atmospheric Parser]
     
     subgraph Computation ["Thermal & Style Indexing"]
-        Parser --> Temp[Temperature (°C / °F)]
-        Parser --> ApparentTemp[Apparent Heat Index (°C)]
+        Parser --> Temp[Temperature °C / °F]
+        Parser --> ApparentTemp[Apparent Heat Index °C]
         Parser --> Humidity[Relative Humidity %]
         Parser --> RainProb[Precipitation Probability %]
         Parser --> WCode[WMO Weather Code]
@@ -120,7 +128,7 @@ flowchart LR
     AdviceEngine --> BreathabilityScore["Fabric Breathability Priority (High/Med/Low)"]
 ```
 
-### Thermal Mapping Logic
+### Thermal Mapping Matrix
 
 | Ambient / Apparent Temp (°C) | Rain Probability (%) | Recommended Thermal Weight | Recommended Garment Types |
 | :--- | :--- | :--- | :--- |
@@ -162,7 +170,7 @@ flowchart TD
 
 ## 5. Resilience & Multi-Tier AI Model Fallback Architecture
 
-To protect against upstream latency, rate-limits (HTTP 429), or capacity spikes (HTTP 503), the backend implements a resilient fallback state machine:
+To protect against upstream latency, rate-limits (HTTP 429), or capacity spikes (HTTP 503), the backend implements an automated state machine:
 
 ```mermaid
 stateDiagram-v2
@@ -266,7 +274,7 @@ interface GarmentWearDocument {
 
 ## 7. Security Architecture & Role-Based Access Control
 
-Data isolation is enforced at both the API Gateway and Firestore Security Rules layers.
+Data isolation is enforced at both the API Gateway and Firestore Security Rules layers:
 
 ```
 +-------------------------------------------------------------------------------+
@@ -284,5 +292,6 @@ Data isolation is enforced at both the API Gateway and Firestore Security Rules 
 ## 8. Summary of Architectural Guarantees
 
 1. **Zero Client Secret Leakage**: The Gemini API key and backend configuration are never exposed to browser memory or client bundles.
-2. **Determinism Under High Load**: The multi-tiered fallback design ensures that regardless of external API quota state, users always receive an aesthetically coordinated, weather-compliant outfit recommendation.
-3. **Low Latency Pre-Processing**: Client-side canvas normalization paired with server-side Sharp pipeline keeps payload sizes strictly below 200 KB per garment analysis.
+2. **Dual Serverless & Monolith Compatibility**: Native serverless routing through `vercel.json` alongside long-running standalone Node.js Express server execution.
+3. **Determinism Under High Load**: The multi-tiered fallback design ensures that regardless of external API quota state, users always receive an aesthetically coordinated, weather-compliant outfit recommendation.
+4. **Low Latency Pre-Processing**: Client-side canvas normalization paired with server-side Sharp pipeline keeps payload sizes strictly below 200 KB per garment analysis.
