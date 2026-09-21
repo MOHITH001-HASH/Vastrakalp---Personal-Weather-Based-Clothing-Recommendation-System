@@ -17,11 +17,18 @@ import {
   User, 
   Shirt, 
   Palette,
-  Calendar
+  Calendar,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Radio
 } from 'lucide-react';
 import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
+import { useVoiceSpeech } from '../hooks/useVoiceSpeech';
+import { VoiceStylistAssistant } from '../components/VoiceStylistAssistant';
 import { FamilyMember, Garment, WeatherContext } from '../types';
 
 export default function Planner() {
@@ -34,6 +41,26 @@ export default function Planner() {
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [selectedAttendeeIds, setSelectedAttendeeIds] = useState<string[]>(['self']);
   const { user, profile } = useAuth();
+
+  // Initialize Voice Speech Engine
+  const {
+    isSupported: isVoiceSupported,
+    isListening,
+    transcript,
+    interimTranscript,
+    audioLevel,
+    error: voiceError,
+    startListening,
+    stopListening,
+    toggleListening,
+    parseVoiceIntent,
+    speakText,
+    stopSpeaking,
+    isSpeaking,
+    ttsEnabled,
+    toggleTts,
+    clearTranscript
+  } = useVoiceSpeech(familyMembers);
 
   // Live weather context state
   const [weather, setWeather] = useState<WeatherContext>({
@@ -144,8 +171,11 @@ export default function Planner() {
     });
   };
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+  const handleGenerate = async (overridePrompt?: string, overrideAttendees?: string[]) => {
+    const targetPrompt = (overridePrompt !== undefined ? overridePrompt : prompt).trim();
+    const targetAttendees = overrideAttendees !== undefined ? overrideAttendees : selectedAttendeeIds;
+
+    if (!targetPrompt) return;
     setLoading(true);
     setSuggestion(null);
     setLogged(false);
@@ -172,11 +202,12 @@ export default function Planner() {
       }
 
       // Check if we are doing multi-person family styling
-      const isMultiPerson = selectedAttendeeIds.length > 1 || selectedAttendeeIds.some(id => id !== 'self');
+      const isMultiPerson = targetAttendees.length > 1 || targetAttendees.some(id => id !== 'self');
 
+      let result: any = null;
       if (isMultiPerson && familyMembers.length > 0) {
         // Build partitioned family closets for each selected attendee
-        const family_closets = selectedAttendeeIds.map(attendeeId => {
+        const family_closets = targetAttendees.map(attendeeId => {
           if (attendeeId === 'self') {
             const selfGarments = currentGarments.filter(
               g => !g.memberId || g.memberId === 'self' || (user && g.memberId === user.uid)
@@ -203,15 +234,26 @@ export default function Planner() {
           }
         });
 
-        const result = await api.suggestFamilyOutfit(prompt, weather, family_closets);
+        result = await api.suggestFamilyOutfit(targetPrompt, weather, family_closets);
         setSuggestion(result);
       } else {
         // Single user personal styling
         const selfGarments = currentGarments.filter(
           g => !g.memberId || g.memberId === 'self' || (user && g.memberId === user.uid)
         );
-        const result = await api.suggestOutfit(prompt, weather, selfGarments.length > 0 ? selfGarments : currentGarments);
+        result = await api.suggestOutfit(targetPrompt, weather, selfGarments.length > 0 ? selfGarments : currentGarments);
         setSuggestion(result);
+      }
+
+      // Automatic Voice Assistant Speech Feedback if TTS is enabled
+      if (result && ttsEnabled) {
+        const theme = result.group_theme_title || result.palette_theme || 'Coordinated Family Harmony';
+        const rationale = result.coordination_rationale || result.coordination_notes || '';
+        const attendeeCount = targetAttendees.length;
+        const spokenMessage = `I've styled your group with the ${theme} aesthetic for ${attendeeCount} ${attendeeCount === 1 ? 'person' : 'people'}. ${rationale ? rationale.slice(0, 180) : ''}`;
+        setTimeout(() => {
+          speakText(spokenMessage);
+        }, 300);
       }
     } catch (err: any) {
       const isRateLimit =
@@ -276,8 +318,53 @@ export default function Planner() {
 
   return (
     <div className="p-4 sm:p-8 max-w-5xl mx-auto space-y-6">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight text-stone-900">Vastrakalp Family Styling Planner</h1>
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-stone-900">Vastrakalp Family Styling Planner</h1>
+          <p className="text-xs text-stone-500 mt-1">Smart coordinated wardrobes with AI voice direction & live weather synergy</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Voice Assistant Activation Pill */}
+          <button
+            id="btn-voice-assistant-toggle"
+            type="button"
+            onClick={toggleListening}
+            className={`px-3.5 py-2 rounded-2xl text-xs font-semibold flex items-center gap-2 transition shadow-xs border ${
+              isListening
+                ? 'bg-rose-600 text-white border-rose-500 animate-pulse ring-2 ring-rose-400/50'
+                : 'bg-white hover:bg-stone-50 text-stone-700 border-stone-200'
+            }`}
+            title={isListening ? 'Click to stop listening' : 'Speak styling instructions (Alexa / Voice Direct style)'}
+          >
+            {isListening ? (
+              <>
+                <Radio className="w-3.5 h-3.5 animate-spin text-white" />
+                <span>Listening...</span>
+              </>
+            ) : (
+              <>
+                <Mic className="w-3.5 h-3.5 text-amber-600" />
+                <span>Voice Direct</span>
+              </>
+            )}
+          </button>
+
+          {/* Text-To-Speech (TTS) Toggle */}
+          <button
+            id="btn-tts-toggle"
+            type="button"
+            onClick={toggleTts}
+            className={`p-2 rounded-2xl text-xs font-semibold flex items-center justify-center transition border ${
+              ttsEnabled
+                ? 'bg-amber-50 text-amber-900 border-amber-300'
+                : 'bg-white text-stone-400 border-stone-200 hover:text-stone-700'
+            }`}
+            title={ttsEnabled ? 'Audio Speech Feedback Enabled' : 'Audio Speech Feedback Muted'}
+          >
+            {ttsEnabled ? <Volume2 className="w-4 h-4 text-amber-600" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+        </div>
       </header>
 
       {/* 1. Attending Family Members Selector */}
@@ -439,17 +526,57 @@ export default function Planner() {
         </div>
       </section>
 
-      {/* 3. Event Prompt Form */}
+      {/* 3. Voice Stylist Assistant (Waveform & Speech Engine) */}
+      <VoiceStylistAssistant
+        isListening={isListening}
+        transcript={transcript}
+        interimTranscript={interimTranscript}
+        audioLevel={audioLevel}
+        error={voiceError}
+        familyMembers={familyMembers}
+        ttsEnabled={ttsEnabled}
+        isSpeaking={isSpeaking}
+        onStartListening={startListening}
+        onStopListening={stopListening}
+        onToggleTts={toggleTts}
+        onStopSpeaking={stopSpeaking}
+        onParseIntent={parseVoiceIntent}
+        onApplyVoiceIntent={({ prompt: newPrompt, attendeeIds, autoSubmit }) => {
+          if (newPrompt) setPrompt(newPrompt);
+          if (attendeeIds && attendeeIds.length > 0) setSelectedAttendeeIds(attendeeIds);
+          if (autoSubmit && newPrompt) {
+            handleGenerate(newPrompt, attendeeIds);
+          }
+        }}
+      />
+
+      {/* 4. Event Prompt Form */}
       <section className="bg-white p-5 sm:p-6 rounded-3xl border border-stone-200/80 shadow-xs space-y-4">
         <form onSubmit={handleSuggest} className="flex flex-col sm:flex-row gap-3">
-          <input 
-            id="input-planner-prompt"
-            type="text" 
-            placeholder="Describe the occasion (e.g. 'Golden hour sunset wedding reception', 'Casual sunday brunch')"
-            className="flex-1 px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900 text-sm"
-            value={prompt}
-            onChange={e => setPrompt(e.target.value)}
-          />
+          <div className="relative flex-1">
+            <input 
+              id="input-planner-prompt"
+              type="text" 
+              placeholder="Describe the occasion or click the mic to speak (e.g. 'Beach sunset dinner for me and Priya')"
+              className="w-full px-4 py-3 pr-12 bg-stone-50 border border-stone-200 rounded-2xl text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900 text-sm transition"
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+            />
+            {/* Integrated Mic Button inside the Input */}
+            <button
+              id="btn-inline-mic"
+              type="button"
+              onClick={toggleListening}
+              className={`absolute right-2.5 top-1/2 -translate-y-1/2 p-2 rounded-xl transition ${
+                isListening
+                  ? 'bg-rose-500 text-white animate-pulse shadow-sm'
+                  : 'text-stone-400 hover:text-stone-900 hover:bg-stone-200/60'
+              }`}
+              title={isListening ? 'Listening... Click to stop' : 'Click to voice search / speak styling request'}
+            >
+              <Mic className={`w-4 h-4 ${isListening ? 'text-white' : 'text-stone-600'}`} />
+            </button>
+          </div>
           <button 
             id="btn-submit-style-group"
             type="submit" 
@@ -486,7 +613,7 @@ export default function Planner() {
             </div>
             <button
               type="button"
-              onClick={handleGenerate}
+              onClick={() => handleGenerate()}
               className="flex items-center gap-1 px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-medium"
             >
               <RefreshCw className="w-3 h-3" />
@@ -496,7 +623,7 @@ export default function Planner() {
         )}
       </section>
 
-      {/* 4. Styled Outfits Result Section */}
+      {/* 5. Styled Outfits Result Section */}
       {suggestion && (
         <section className="space-y-6 animate-in fade-in duration-300">
           {/* Group Palette & Coordination Header */}
@@ -525,6 +652,29 @@ export default function Planner() {
                     ))}
                   </div>
                 )}
+
+                {/* Read Aloud Audio Button */}
+                <button
+                  id="btn-read-aloud-strategy"
+                  type="button"
+                  onClick={() => {
+                    if (isSpeaking) {
+                      stopSpeaking();
+                    } else {
+                      const text = `Vastrakalp styling recommendation: ${themeTitle || ''}. ${coordinationRationale || ''} ${weatherRationale || ''}`;
+                      speakText(text);
+                    }
+                  }}
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border ${
+                    isSpeaking
+                      ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                      : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
+                  }`}
+                  title="Read styling strategy aloud"
+                >
+                  {isSpeaking ? <Volume2 className="w-3.5 h-3.5 text-amber-700 animate-pulse" /> : <Volume2 className="w-3.5 h-3.5 text-stone-600" />}
+                  <span>{isSpeaking ? 'Reading Aloud...' : 'Read Aloud'}</span>
+                </button>
 
                 <button 
                   id="btn-log-group-outfit"

@@ -1,6 +1,6 @@
 {
   "name": "Vastrakalp",
   "description": "AI-powered wardrobe management and family styling application.",
-  "requestFramePermissions": ["geolocation"],
+  "requestFramePermissions": ["geolocation", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
