@@ -171,6 +171,8 @@ export const api = {
   getGarments: () => apiClient('/garments', { method: 'GET' }),
   suggestOutfit: (prompt: string, weather?: any, garments?: any[]) =>
     apiClient('/outfits/suggest', { method: 'POST', body: JSON.stringify({ prompt, weather, garments }) }),
+  suggestFamilyOutfit: (event_prompt: string, weather: any, family_closets: any[]) =>
+    apiClient('/outfits/suggest', { method: 'POST', body: JSON.stringify({ event_prompt, weather, family_closets }) }),
   getWeather: (params?: { lat?: number; lon?: number; city?: string }) => {
     const query = new URLSearchParams();
     if (params?.lat !== undefined) query.set('lat', params.lat.toString());

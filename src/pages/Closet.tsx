@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Plus, 
   Upload, 
@@ -15,45 +16,45 @@ import {
   RefreshCw, 
   XCircle,
   Layers,
-  Filter
+  Filter,
+  Users,
+  User,
+  Tag,
+  ArrowRight
 } from 'lucide-react';
 import { collection, query, where, getDocs, doc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../api/client';
+import { Garment, FamilyMember } from '../types';
+import FamilyMemberBar from '../components/FamilyMemberBar';
+import FamilyMemberModal from '../components/FamilyMemberModal';
 
 // Category filter definitions
 type CategoryFilter = 'all' | 'top' | 'bottom' | 'outerwear' | 'sets_suits' | 'footwear' | 'accessory';
 
-interface Garment {
-  id: string;
-  name?: string;
-  category: string;
-  subCategory: string;
-  primaryColorName: string;
-  primaryColorHex: string;
-  pattern?: string;
-  material?: string;
-  fit?: string;
-  formalityScore: number;
-  thermalWeight: number;
-  included_pieces?: string[];
-  styling_notes?: string;
-  imageUrl?: string;
-  isFavorite?: boolean;
-  ownerId?: string;
-  familyId?: string;
-  createdAt?: number;
-}
-
 export default function Closet() {
+  const [searchParams] = useSearchParams();
   // 1. Closet grid & catalog state
   const [garments, setGarments] = useState<Garment[]>([]);
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string>(() => searchParams.get('member') || 'all'); // 'all' | 'self' | member.id
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<CategoryFilter>('all');
   const { user, profile } = useAuth();
 
-  // 2. In-place modal & ingestion state
+  useEffect(() => {
+    const memberParam = searchParams.get('member');
+    if (memberParam) {
+      setSelectedMemberId(memberParam);
+    }
+  }, [searchParams]);
+
+  // 2. Family Member Modal state
+  const [isFamilyModalOpen, setIsFamilyModalOpen] = useState(false);
+  const [memberToEdit, setMemberToEdit] = useState<FamilyMember | null>(null);
+
+  // 3. In-place modal & ingestion state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -65,43 +66,72 @@ export default function Closet() {
   const [countdownReason, setCountdownReason] = useState<string>('');
   const retryCountRef = useRef<number>(0);
   
+  // Target owner for new upload (defaults to active member tab if specific, else 'self')
+  const [targetMemberId, setTargetMemberId] = useState<string>('self');
+
   // Extracted attributes array (supports single garment or multi-piece composite sets)
   const [attributesArray, setAttributesArray] = useState<any[] | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Load user garments on mount / auth change
+  // Sync targetMemberId with selectedMemberId when opening modal
   useEffect(() => {
-    async function load() {
+    if (selectedMemberId === 'all') {
+      setTargetMemberId('self');
+    } else {
+      setTargetMemberId(selectedMemberId);
+    }
+  }, [selectedMemberId, isModalOpen]);
+
+  // Load user garments and family members on mount / auth change
+  useEffect(() => {
+    async function loadData() {
       if (!user) return;
-      const cacheKey = `vastrakalp_garments_${user.uid}`;
+      
+      const garmentsCacheKey = `vastrakalp_garments_${user.uid}`;
+      const membersCacheKey = `vastrakalp_family_members_${user.uid}`;
+
+      // 1. Read cache first for instantaneous rendering
       try {
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          setGarments(JSON.parse(cached));
+        const cachedGarments = localStorage.getItem(garmentsCacheKey);
+        if (cachedGarments) {
+          setGarments(JSON.parse(cachedGarments));
+        }
+        const cachedMembers = localStorage.getItem(membersCacheKey);
+        if (cachedMembers) {
+          setFamilyMembers(JSON.parse(cachedMembers));
         }
       } catch {
-        // Ignore JSON error
+        // Ignore cache JSON error
       }
 
+      // 2. Fetch fresh data from Firestore
       try {
-        const q = query(collection(db, 'garments'), where('ownerId', '==', user.uid));
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Garment));
-        setGarments(data);
+        // Load Garments
+        const garmentsQuery = query(collection(db, 'garments'), where('ownerId', '==', user.uid));
+        const garmentsSnap = await getDocs(garmentsQuery);
+        const fetchedGarments = garmentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Garment));
+        setGarments(fetchedGarments);
         try {
-          localStorage.setItem(cacheKey, JSON.stringify(data));
-        } catch {
-          // Ignore cache save error
-        }
+          localStorage.setItem(garmentsCacheKey, JSON.stringify(fetchedGarments));
+        } catch {}
+
+        // Load Family Members
+        const membersQuery = query(collection(db, 'familyMembers'), where('userId', '==', user.uid));
+        const membersSnap = await getDocs(membersQuery);
+        const fetchedMembers = membersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as FamilyMember));
+        setFamilyMembers(fetchedMembers);
+        try {
+          localStorage.setItem(membersCacheKey, JSON.stringify(fetchedMembers));
+        } catch {}
       } catch (err) {
-        console.warn('Operating with local garments cache while connecting to Firestore:', err);
+        console.warn('Operating with local cache while connecting to Firestore:', err);
       } finally {
         setLoading(false);
       }
     }
-    load();
+    loadData();
   }, [user]);
 
   // Auto-retry timer for TPM cooldown / Warmup
@@ -172,40 +202,57 @@ export default function Closet() {
     });
   };
 
-  // Trigger FastAPI / Express backend ingestion endpoint
+  // Trigger Gemini Vision attribute analysis endpoint
   const triggerAnalysis = async (file: File) => {
     setAnalyzing(true);
     setError(null);
     setCountdown(null);
     setCountdownReason('');
-    try {
-      const formData = new FormData();
-      const compressedImage = await resizeImage(file);
-      formData.append('image', compressedImage, file.name || 'garment.jpg');
 
-      const result = await api.analyzeGarment(formData);
-      const items = Array.isArray(result) ? result : [result];
-      setAttributesArray(items);
-      setIsEditing(false);
+    try {
+      const optimizedBlob = await resizeImage(file);
+      const formData = new FormData();
+      formData.append('image', optimizedBlob, file.name || 'garment.jpg');
+
+      const data = await api.analyzeGarment(formData);
       retryCountRef.current = 0;
+
+      // Check if backend returned multiple items (e.g. Kurta + Pyjama set or Suit + Trouser)
+      if (Array.isArray(data)) {
+        setAttributesArray(data);
+      } else if (data && data.items && Array.isArray(data.items)) {
+        setAttributesArray(data.items);
+      } else if (data) {
+        setAttributesArray([data]);
+      } else {
+        throw new Error('No structured attributes returned from analysis.');
+      }
     } catch (err: any) {
+      console.warn('Garment analysis encountered condition:', err);
       const isRateLimit =
         err?.isRateLimit ||
         err?.code === 'RATE_LIMIT_EXCEEDED' ||
         err?.status === 429 ||
-        /tokens per minute|tpm|rate limit quota/i.test(err?.message || '');
+        /tokens per minute|tpm|quota|rate limit/i.test(err?.message || '');
+
+      const isWarmup =
+        err?.isWarmup ||
+        err?.code === 'SERVER_WARMUP' ||
+        err?.code === 'NETWORK_ERROR' ||
+        err?.status === 0 ||
+        err?.status === 502 ||
+        err?.status === 503;
 
       if (isRateLimit) {
-        console.warn('Gemini rate limit quota reached, scheduling retry:', err?.message || err);
-        const retrySec = err?.retryAfterSeconds || 30;
-        setCountdown(retrySec);
-        setCountdownReason('Tokens Per Minute (TPM) quota reached on Gemini. Retrying automatically.');
-        setError(null);
+        const sec = err?.retryAfterSeconds || 60;
+        setCountdown(sec);
+        setCountdownReason(`Gemini Tokens Per Minute (TPM) limit reached. Waiting ${sec}s cooldown before automatic retry...`);
+      } else if (isWarmup) {
+        const sec = err?.retryAfterSeconds || 5;
+        setCountdown(sec);
+        setCountdownReason(`Backend server is starting up or handling requests. Retrying in ${sec}s...`);
       } else {
-        console.error('Failed to analyze garment:', err);
-        setError(err?.message || 'Failed to analyze image. Please retry or enter details manually.');
-        setCountdown(null);
-        setCountdownReason('');
+        setError(err?.message || 'Failed to analyze garment image. You can enter details manually.');
       }
     } finally {
       setAnalyzing(false);
@@ -215,10 +262,13 @@ export default function Closet() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      retryCountRef.current = 0;
       setImageFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+      const objectUrl = URL.createObjectURL(file);
+      setPreviewUrl(objectUrl);
       setAttributesArray(null);
+      setError(null);
+      setCountdown(null);
+      setCountdownReason('');
       triggerAnalysis(file);
     }
   };
@@ -232,7 +282,7 @@ export default function Closet() {
       {
         name: 'New Wardrobe Item',
         category: 'top',
-        subCategory: 'Shirt / Top',
+        subCategory: 'T-Shirt',
         primaryColorName: 'Navy Blue',
         primaryColorHex: '#1e3a8a',
         pattern: 'Solid',
@@ -253,7 +303,6 @@ export default function Closet() {
     setAttributesArray(newArr);
   };
 
-  // Close modal and reset upload state cleanly
   const closeModal = () => {
     setIsModalOpen(false);
     setImageFile(null);
@@ -277,6 +326,12 @@ export default function Closet() {
         reader.onloadend = () => resolve(reader.result as string);
         reader.readAsDataURL(storageFile);
       });
+
+      // Determine owner details
+      const isSelf = targetMemberId === 'self';
+      const assignedMember = familyMembers.find(m => m.id === targetMemberId);
+      const memberName = isSelf ? (profile?.firstName || 'You') : (assignedMember?.name || 'Family Member');
+      const memberRelation = isSelf ? 'self' : (assignedMember?.relationship || 'other');
 
       const newGarmentsToInsert: Garment[] = [];
 
@@ -309,7 +364,11 @@ export default function Closet() {
           styling_notes: attributes.styling_notes || '',
           imageUrl: base64Url,
           ownerId: user.uid,
+          userId: user.uid,
           familyId: profile.familyId,
+          memberId: targetMemberId,
+          memberName: memberName,
+          memberRelation: memberRelation,
           isUserModified: false,
           isFavorite: false,
           createdAt: now,
@@ -327,7 +386,13 @@ export default function Closet() {
       }
 
       // Optimistically prepend the new garments to the top of the closet grid
-      setGarments(prev => [...newGarmentsToInsert, ...prev]);
+      setGarments(prev => {
+        const updated = [...newGarmentsToInsert, ...prev];
+        try {
+          localStorage.setItem(`vastrakalp_garments_${user.uid}`, JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
 
       // Dismiss modal
       closeModal();
@@ -339,233 +404,355 @@ export default function Closet() {
     }
   };
 
-  // Toggle favorite status
-  const handleToggleFavorite = async (id: string, currentStatus: boolean, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      const newStatus = !currentStatus;
-      await updateDoc(doc(db, 'garments', id), { isFavorite: newStatus });
-      setGarments(prev => prev.map(g => g.id === id ? { ...g, isFavorite: newStatus } : g));
-    } catch (err) {
-      console.error('Failed to update favorite status:', err);
-    }
-  };
-
-  // Delete garment
   const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.preventDefault();
     e.stopPropagation();
-    
-    // Optimistically remove from state
-    setGarments(prev => prev.filter(g => g.id !== id));
-
+    if (!confirm('Are you sure you want to remove this garment from the closet?')) return;
     try {
       await deleteDoc(doc(db, 'garments', id));
-    } catch (err: any) {
-      console.warn('Client direct delete failed, attempting backend fallback deletion:', err?.message || err);
-      try {
-        await api.deleteGarment(id);
-      } catch (backendErr: any) {
-        console.error('Failed to delete garment on backend:', backendErr);
-      }
+      setGarments(prev => {
+        const filtered = prev.filter(g => g.id !== id);
+        if (user) {
+          try {
+            localStorage.setItem(`vastrakalp_garments_${user.uid}`, JSON.stringify(filtered));
+          } catch {}
+        }
+        return filtered;
+      });
+    } catch (error) {
+      console.error('Failed to delete garment:', error);
+      alert('Failed to delete garment. Please try again.');
     }
   };
 
-  // Filter garments based on category tab
-  const filteredGarments = garments.filter((garment) => {
-    if (activeCategory === 'all') return true;
-    if (activeCategory === 'sets_suits') {
-      return ['suit', 'kurta_set', 'tuxedo', 'co_ord_set'].includes(garment.category);
+  const handleToggleFavorite = async (id: string, current: boolean, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updatedFav = !current;
+    // Optimistic UI update
+    setGarments(prev => {
+      const updated = prev.map(g => (g.id === id ? { ...g, isFavorite: updatedFav } : g));
+      if (user) {
+        try {
+          localStorage.setItem(`vastrakalp_garments_${user.uid}`, JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
+    });
+
+    try {
+      await updateDoc(doc(db, 'garments', id), {
+        isFavorite: updatedFav,
+        updatedAt: Date.now()
+      });
+    } catch (error) {
+      console.error('Failed to update favorite status:', error);
     }
-    return garment.category === activeCategory;
+  };
+
+  // Family Member Saved Handler
+  const handleFamilyMemberSaved = (savedMember: FamilyMember, isNew: boolean) => {
+    setFamilyMembers(prev => {
+      let updated: FamilyMember[];
+      if (isNew) {
+        updated = [...prev, savedMember];
+      } else {
+        updated = prev.map(m => (m.id === savedMember.id ? savedMember : m));
+      }
+      if (user) {
+        try {
+          localStorage.setItem(`vastrakalp_family_members_${user.uid}`, JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
+    });
+    // Auto switch to newly added member's closet
+    if (isNew) {
+      setSelectedMemberId(savedMember.id);
+    }
+  };
+
+  // Family Member Deleted Handler
+  const handleFamilyMemberDeleted = (deletedMemberId: string) => {
+    setFamilyMembers(prev => {
+      const filtered = prev.filter(m => m.id !== deletedMemberId);
+      if (user) {
+        try {
+          localStorage.setItem(`vastrakalp_family_members_${user.uid}`, JSON.stringify(filtered));
+        } catch {}
+      }
+      return filtered;
+    });
+    if (selectedMemberId === deletedMemberId) {
+      setSelectedMemberId('all');
+    }
+  };
+
+  // Calculate garment counts per member
+  const garmentCounts: Record<string, number> = {
+    all: garments.length,
+    self: garments.filter(g => !g.memberId || g.memberId === 'self' || (user && g.memberId === user.uid)).length
+  };
+  familyMembers.forEach(m => {
+    garmentCounts[m.id] = garments.filter(g => g.memberId === m.id).length;
   });
 
-  const categoryTabs = [
-    { id: 'all', label: 'All Items', count: garments.length },
-    { id: 'top', label: 'Tops', count: garments.filter(g => g.category === 'top').length },
-    { id: 'bottom', label: 'Bottoms', count: garments.filter(g => g.category === 'bottom').length },
-    { id: 'outerwear', label: 'Outerwear', count: garments.filter(g => g.category === 'outerwear').length },
-    { 
-      id: 'sets_suits', 
-      label: 'Sets / Suits', 
-      count: garments.filter(g => ['suit', 'kurta_set', 'tuxedo', 'co_ord_set'].includes(g.category)).length 
-    },
-    { id: 'footwear', label: 'Footwear', count: garments.filter(g => g.category === 'footwear').length },
-    { id: 'accessory', label: 'Accessories', count: garments.filter(g => g.category === 'accessory').length },
-  ];
+  // Filter garments based on selected member AND selected category
+  const filteredGarments = garments.filter((g) => {
+    // 1. Member filter
+    if (selectedMemberId === 'self') {
+      const isSelf = !g.memberId || g.memberId === 'self' || (user && g.memberId === user.uid);
+      if (!isSelf) return false;
+    } else if (selectedMemberId !== 'all') {
+      if (g.memberId !== selectedMemberId) return false;
+    }
+
+    // 2. Category filter
+    if (activeCategory === 'all') return true;
+    if (activeCategory === 'sets_suits') {
+      return ['suit', 'kurta_set', 'tuxedo', 'co_ord_set'].includes(g.category);
+    }
+    return g.category === activeCategory;
+  });
+
+  // Helper to render owner tag on garment card
+  const renderOwnerBadge = (garment: Garment) => {
+    const isSelf = !garment.memberId || garment.memberId === 'self' || (user && garment.memberId === user.uid);
+    if (isSelf) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-900/80 backdrop-blur-md text-white text-[10px] font-medium shadow-sm">
+          <User className="w-3 h-3" />
+          <span>{profile?.firstName || 'You'}</span>
+        </span>
+      );
+    }
+
+    const member = familyMembers.find(m => m.id === garment.memberId);
+    const color = member?.avatarColor || '#ec4899';
+    const name = garment.memberName || member?.name || 'Family';
+    const relation = garment.memberRelation || member?.relationship;
+
+    return (
+      <span 
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md backdrop-blur-md text-white text-[10px] font-medium shadow-sm"
+        style={{ backgroundColor: `${color}dd` }}
+      >
+        <span>{name}</span>
+        {relation && <span className="opacity-80 text-[9px] capitalize">({relation})</span>}
+      </span>
+    );
+  };
+
+  const selectedMember = familyMembers.find(m => m.id === selectedMemberId);
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
-      {/* 1. Header with Title & Action */}
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-6">
+      {/* 1. Header with Add Button */}
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-stone-900">Personal Closet</h1>
-          <p className="text-stone-500 mt-1">Catalog, curate, and auto-tag your wardrobe seamlessly.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-stone-900">Wardrobe & Family Closets</h1>
         </div>
+        <div className="flex items-center gap-3">
+          <button
+            id="btn-add-family-member-header"
+            onClick={() => {
+              setMemberToEdit(null);
+              setIsFamilyModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold transition-colors"
+          >
+            <Users className="w-4 h-4 text-stone-600" />
+            <span>Family Members ({familyMembers.length})</span>
+          </button>
 
-        {/* Top-Right Add Item Button */}
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-stone-900 hover:bg-stone-800 text-white font-medium rounded-xl shadow-sm transition cursor-pointer"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Add Item</span>
-        </button>
+          <button
+            id="btn-add-garment-modal"
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>
+              {selectedMemberId === 'all' || selectedMemberId === 'self'
+                ? 'Add Garment'
+                : `Add for ${selectedMember?.name || 'Member'}`}
+            </span>
+          </button>
+        </div>
       </header>
 
-      {/* 2. Category Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-stone-200">
-        {categoryTabs.map(tab => (
+      {/* 2. Family Members Bar & Multi-Closet Switcher */}
+      <section className="bg-stone-50/80 p-4 rounded-3xl border border-stone-200/80 shadow-2xs">
+        <div className="flex items-center justify-between mb-3 px-1">
+          <div className="flex items-center gap-2 text-xs font-bold text-stone-700 uppercase tracking-wider">
+            <Users className="w-4 h-4 text-stone-500" />
+            <span>Household Wardrobe Directory</span>
+          </div>
+          <span className="text-xs text-stone-500">
+            {familyMembers.length > 0
+              ? `${familyMembers.length + 1} Managed Closets`
+              : 'Add family members to enable multi-person styling'}
+          </span>
+        </div>
+
+        <FamilyMemberBar
+          members={familyMembers}
+          selectedMemberId={selectedMemberId}
+          onSelectMember={setSelectedMemberId}
+          onAddMemberClick={() => {
+            setMemberToEdit(null);
+            setIsFamilyModalOpen(true);
+          }}
+          onEditMemberClick={(member) => {
+            setMemberToEdit(member);
+            setIsFamilyModalOpen(true);
+          }}
+          garmentCounts={garmentCounts}
+          userName={profile?.firstName || 'You'}
+        />
+      </section>
+
+      {/* 3. Category Filter Tabs */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none border-b border-stone-100">
+        {[
+          { id: 'all', label: 'All Garments' },
+          { id: 'top', label: 'Tops' },
+          { id: 'bottom', label: 'Bottoms' },
+          { id: 'outerwear', label: 'Outerwear' },
+          { id: 'sets_suits', label: 'Sets & Suits' },
+          { id: 'footwear', label: 'Footwear' },
+          { id: 'accessory', label: 'Accessories' }
+        ].map(cat => (
           <button
-            key={tab.id}
-            onClick={() => setActiveCategory(tab.id as CategoryFilter)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors cursor-pointer flex items-center gap-2 ${
-              activeCategory === tab.id
-                ? 'bg-stone-900 text-white shadow-sm'
-                : 'bg-white text-stone-600 hover:bg-stone-100 hover:text-stone-900 border border-stone-200/70'
+            key={cat.id}
+            id={`filter-${cat.id}`}
+            onClick={() => setActiveCategory(cat.id as CategoryFilter)}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+              activeCategory === cat.id
+                ? 'bg-stone-900 text-white shadow-xs'
+                : 'bg-white text-stone-600 hover:bg-stone-100 hover:text-stone-900'
             }`}
           >
-            <span>{tab.label}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-              activeCategory === tab.id ? 'bg-stone-700 text-stone-200' : 'bg-stone-100 text-stone-500'
-            }`}>
-              {tab.count}
-            </span>
+            {cat.label}
           </button>
         ))}
       </div>
 
-      {/* 3. Closet Grid */}
+      {/* 4. Closet Content Grid / State Rendering */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <div className="py-20 flex flex-col items-center justify-center text-center space-y-3">
           <Loader2 className="w-8 h-8 animate-spin text-stone-400" />
-          <p className="text-sm text-stone-500">Loading your wardrobe collection...</p>
+          <p className="text-sm font-medium text-stone-500">Loading wardrobe catalog...</p>
         </div>
       ) : filteredGarments.length === 0 ? (
-        <div className="bg-white border border-stone-100 rounded-3xl p-12 text-center shadow-sm flex flex-col items-center">
-          <div className="w-16 h-16 bg-stone-50 rounded-2xl flex items-center justify-center mb-4 text-stone-400">
-            <Filter className="w-8 h-8" />
+        <div className="py-16 px-4 text-center bg-white rounded-3xl border border-stone-200/80 shadow-xs flex flex-col items-center justify-center space-y-4">
+          <div className="w-16 h-16 rounded-3xl bg-stone-50 flex items-center justify-center text-stone-400">
+            <Layers className="w-8 h-8" />
           </div>
-          <h3 className="text-lg font-semibold text-stone-900">
-            {activeCategory === 'all' ? 'Your closet is empty' : `No items in ${categoryTabs.find(t => t.id === activeCategory)?.label}`}
-          </h3>
-          <p className="text-stone-500 mt-1 mb-6 max-w-sm text-sm">
-            {activeCategory === 'all'
-              ? 'Start cataloging your wardrobe by taking a photo or selecting an image from your device.'
-              : 'Try selecting a different category or add a new piece to this category.'}
-          </p>
+          <div className="max-w-md">
+            <h3 className="text-lg font-bold text-stone-900">
+              {selectedMemberId === 'all'
+                ? 'No Garments Found'
+                : selectedMemberId === 'self'
+                ? 'Your personal closet is empty'
+                : `${selectedMember?.name || 'Member'}'s closet is empty`}
+            </h3>
+            <p className="text-stone-500 text-xs mt-1">
+              {selectedMemberId === 'all'
+                ? 'Digitise garments by taking a photo or uploading from your device to enable AI styling.'
+                : `Add garments specifically for ${selectedMember?.name || 'this member'} to include them in family event coordination.`}
+            </p>
+          </div>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-stone-900 text-white font-medium rounded-xl hover:bg-stone-800 transition cursor-pointer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded-2xl shadow-sm transition-all"
           >
             <Plus className="w-4 h-4" />
-            <span>Add Item Now</span>
+            <span>Upload First Garment</span>
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {[...filteredGarments]
-            .sort((a, b) => (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0))
-            .map((garment) => {
-              const isComposite = ['suit', 'kurta_set', 'tuxedo', 'co_ord_set'].includes(garment.category);
-              return (
-                <div 
-                  key={garment.id} 
-                  className="bg-white rounded-2xl border border-stone-200/80 overflow-hidden shadow-sm hover:shadow-md transition flex flex-col group"
-                >
-                  <div className="aspect-square bg-stone-50 p-4 flex items-center justify-center relative">
-                    {garment.imageUrl ? (
-                      <img 
-                        src={garment.imageUrl} 
-                        alt={garment.subCategory || garment.name} 
-                        className="object-contain w-full h-full mix-blend-multiply pointer-events-none" 
-                      />
-                    ) : (
-                      <div className="text-stone-300 text-sm">No Image</div>
-                    )}
-                    
-                    {/* Category / Composite Set Badge */}
-                    <div className="absolute top-3 left-3 flex flex-col gap-1">
-                      <span className="px-2 py-1 bg-white/95 backdrop-blur text-[10px] font-bold uppercase tracking-wider text-stone-700 rounded-md shadow-xs border border-stone-200/60">
-                        {garment.category.replace('_', ' ')}
-                      </span>
-                      {isComposite && (
-                        <span className="px-2 py-0.5 bg-amber-500/90 text-white text-[9px] font-bold uppercase tracking-wider rounded-md shadow-xs flex items-center gap-1">
-                          <Layers className="w-2.5 h-2.5" />
-                          Set
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Quick action buttons */}
-                    <div className="absolute z-10 top-3 right-3 flex flex-col gap-1.5">
-                      <button
-                        onClick={(e) => handleToggleFavorite(garment.id, !!garment.isFavorite, e)}
-                        className={`p-2 ${
-                          garment.isFavorite 
-                            ? 'bg-rose-50 text-rose-500' 
-                            : 'bg-white/90 text-stone-400 hover:text-rose-500 hover:bg-white'
-                        } backdrop-blur rounded-full shadow-sm transition pointer-events-auto cursor-pointer`}
-                        title="Toggle favorite"
-                      >
-                        <Heart className="w-4 h-4" fill={garment.isFavorite ? 'currentColor' : 'none'} />
-                      </button>
-                      <button
-                        onClick={(e) => handleDelete(garment.id, e)}
-                        className="p-2 bg-white/90 backdrop-blur text-stone-400 hover:text-rose-600 hover:bg-white rounded-full transition shadow-sm pointer-events-auto cursor-pointer"
-                        title="Delete garment"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {filteredGarments.map((garment) => (
+            <div 
+              key={garment.id} 
+              id={`garment-card-${garment.id}`}
+              className="group bg-white rounded-3xl border border-stone-200/80 overflow-hidden shadow-2xs hover:shadow-md transition flex flex-col justify-between"
+            >
+              <div className="relative aspect-square bg-stone-100 overflow-hidden">
+                {garment.imageUrl ? (
+                  <img 
+                    src={garment.imageUrl} 
+                    alt={garment.name || garment.subCategory}
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-stone-400">
+                    <Layers className="w-8 h-8" />
                   </div>
+                )}
 
-                  <div className="p-4 flex-1 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between mb-1 gap-2">
-                        <h4 className="font-semibold text-stone-900 capitalize truncate text-sm">
-                          {garment.name || garment.subCategory}
-                        </h4>
-                        <div 
-                          className="w-3.5 h-3.5 rounded-full border border-stone-200 shrink-0 shadow-2xs" 
-                          style={{ backgroundColor: garment.primaryColorHex }} 
-                          title={garment.primaryColorName}
-                        />
-                      </div>
-                      <p className="text-xs text-stone-500 capitalize truncate">
-                        {garment.primaryColorName} · {garment.material || 'Standard Fabric'}
-                      </p>
-                      {garment.included_pieces && garment.included_pieces.length > 0 && (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {garment.included_pieces.map((piece, pIdx) => (
-                            <span key={pIdx} className="text-[10px] bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded">
-                              {piece}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-3 pt-3 border-t border-stone-100 flex items-center justify-between text-[11px] font-medium text-stone-500">
-                      <span>Formality: <strong>{garment.formalityScore}/5</strong></span>
-                      <span>Warmth: <strong>{garment.thermalWeight}/5</strong></span>
-                    </div>
-                  </div>
+                {/* Owner Badge Pill on Image */}
+                <div className="absolute top-3 left-3 z-10">
+                  {renderOwnerBadge(garment)}
                 </div>
-              );
-            })}
+
+                {/* Quick action buttons */}
+                <div className="absolute z-10 top-3 right-3 flex flex-col gap-1.5">
+                  <button
+                    onClick={(e) => handleToggleFavorite(garment.id, !!garment.isFavorite, e)}
+                    className={`p-2 ${
+                      garment.isFavorite 
+                        ? 'bg-rose-50 text-rose-500' 
+                        : 'bg-white/90 text-stone-400 hover:text-rose-500 hover:bg-white'
+                    } backdrop-blur-md rounded-full shadow-sm transition pointer-events-auto cursor-pointer`}
+                    title="Toggle favorite"
+                  >
+                    <Heart className="w-4 h-4" fill={garment.isFavorite ? 'currentColor' : 'none'} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDelete(garment.id, e)}
+                    className="p-2 bg-white/90 backdrop-blur-md text-stone-400 hover:text-rose-600 hover:bg-white rounded-full transition shadow-sm pointer-events-auto cursor-pointer"
+                    title="Delete garment"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 flex-1 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <h4 className="font-semibold text-stone-900 capitalize truncate text-sm">
+                      {garment.name || garment.subCategory}
+                    </h4>
+                    <div 
+                      className="w-3.5 h-3.5 rounded-full border border-stone-200 shrink-0 shadow-2xs" 
+                      style={{ backgroundColor: garment.primaryColorHex }} 
+                      title={garment.primaryColorName}
+                    />
+                  </div>
+                  <p className="text-xs text-stone-500 capitalize truncate">
+                    {garment.primaryColorName} · {garment.material || 'Standard Fabric'}
+                  </p>
+                  {garment.included_pieces && garment.included_pieces.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {garment.included_pieces.map((piece, pIdx) => (
+                        <span key={pIdx} className="text-[10px] bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded">
+                          {piece}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-stone-100 flex items-center justify-between text-[11px] font-medium text-stone-500">
+                  <span>Formality: <strong>{garment.formalityScore}/5</strong></span>
+                  <span>Warmth: <strong>{garment.thermalWeight}/5</strong></span>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
-
-      {/* 4. Floating Action Button (FAB) for Mobile & Rapid Access */}
-      <button
-        onClick={() => setIsModalOpen(true)}
-        className="fixed bottom-6 right-6 sm:hidden w-14 h-14 bg-stone-900 text-white rounded-full shadow-lg hover:bg-stone-800 flex items-center justify-center transition cursor-pointer z-20"
-        aria-label="Add Item"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
 
       {/* 5. In-Place Ingestion Modal (Bottom Sheet / Overlay) */}
       {isModalOpen && (
@@ -590,6 +777,53 @@ export default function Closet() {
 
             {/* Modal Body */}
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {/* Assign to Family Member Selector */}
+              <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200/80">
+                <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-2">
+                  Assign Garment To
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTargetMemberId('self')}
+                    className={`p-2.5 rounded-2xl border text-left text-xs font-medium transition-all flex items-center gap-2 ${
+                      targetMemberId === 'self'
+                        ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                        : 'border-stone-200 bg-white text-stone-700 hover:bg-stone-100'
+                    }`}
+                  >
+                    <div className="w-5 h-5 rounded-lg bg-amber-500 text-white flex items-center justify-center text-[10px] font-bold">
+                      {(profile?.firstName || 'Y').charAt(0).toUpperCase()}
+                    </div>
+                    <span className="truncate">{profile?.firstName || 'You'} (Self)</span>
+                  </button>
+
+                  {familyMembers.map((member) => {
+                    const isSelected = targetMemberId === member.id;
+                    return (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => setTargetMemberId(member.id)}
+                        className={`p-2.5 rounded-2xl border text-left text-xs font-medium transition-all flex items-center gap-2 ${
+                          isSelected
+                            ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                            : 'border-stone-200 bg-white text-stone-700 hover:bg-stone-100'
+                        }`}
+                      >
+                        <div 
+                          className="w-5 h-5 rounded-lg text-white flex items-center justify-center text-[10px] font-bold"
+                          style={{ backgroundColor: member.avatarColor || '#ec4899' }}
+                        >
+                          {member.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="truncate">{member.name} ({member.relationship})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Hidden File Inputs */}
               <input
                 type="file"
@@ -968,6 +1202,15 @@ export default function Closet() {
           </div>
         </div>
       )}
+
+      {/* 6. Family Member Add / Edit Modal */}
+      <FamilyMemberModal
+        isOpen={isFamilyModalOpen}
+        onClose={() => setIsFamilyModalOpen(false)}
+        memberToEdit={memberToEdit}
+        onSaved={handleFamilyMemberSaved}
+        onDeleted={handleFamilyMemberDeleted}
+      />
     </div>
   );
 }

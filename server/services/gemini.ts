@@ -1,7 +1,14 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import type { Schema } from '@google/genai';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    }
+  }
+});
 
 const GarmentSchema: Schema = {
   type: Type.OBJECT,
@@ -89,18 +96,16 @@ export class GeminiRateLimitError extends Error {
 }
 
 // Ordered candidate models for automatic multi-model fallback:
-// 1. gemini-flash-lite-latest: ultra-fast multimodal model (sub-second latency)
-// 2. gemini-3.1-flash-lite: low latency multimodal vision
-// 3. gemini-flash-latest: stable alias for flash multimodal
-// 4. gemini-3.8-flash: modern fast flash multimodal model
+// 1. gemini-3.1-flash-lite: ultra-fast lightweight multimodal model (sub-second latency)
+// 2. gemini-flash-latest: stable alias for flash multimodal
+// 3. gemini-3.8-flash: modern fast flash multimodal model
 const CANDIDATE_MODELS = [
-  'gemini-flash-lite-latest',
   'gemini-3.1-flash-lite',
   'gemini-flash-latest',
   'gemini-3.8-flash'
 ];
 
-// In-memory cooldown tracking to avoid hitting quota-exhausted models repeatedly
+// In-memory cooldown tracking to avoid hitting quota-exhausted or timed-out models repeatedly
 const modelCooldowns: Record<string, number> = {};
 
 function markModelCooldown(model: string, durationMs: number = 60 * 1000) {
@@ -164,7 +169,11 @@ function isHighDemandError(error: any): boolean {
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+    timer = setTimeout(() => {
+      const err: any = new Error(errorMessage);
+      err.isTimeout = true;
+      reject(err);
+    }, timeoutMs);
   });
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
@@ -178,7 +187,7 @@ async function executeWithModelFallback<T>(
     const currentModel = CANDIDATE_MODELS[mIdx];
     const hasNextModel = mIdx < CANDIDATE_MODELS.length - 1;
 
-    // Skip models currently in quota or high-demand cooldown if we have alternatives
+    // Skip models currently in quota or cooldown if we have alternatives
     if (isModelInCooldown(currentModel) && hasNextModel) {
       console.log(`[Gemini] Skipping ${currentModel} (active cooldown until quota reset)`);
       continue;
@@ -186,11 +195,10 @@ async function executeWithModelFallback<T>(
 
     try {
       console.log(`[Gemini] Attempting generation with model: ${currentModel}`);
-      // Bound each single attempt to 30s to allow complete multimodal processing
       return await withTimeout(
         operation(currentModel),
-        30000,
-        `Gemini model ${currentModel} call timed out after 30s`
+        45000,
+        `Gemini model ${currentModel} call timed out after 45s`
       );
     } catch (error: any) {
       lastError = error;
@@ -208,6 +216,12 @@ async function executeWithModelFallback<T>(
           console.info(`[Gemini] Model ${currentModel} high demand (503). Auto-switching to next candidate: ${CANDIDATE_MODELS[mIdx + 1]}`);
           continue;
         }
+      } else if (error?.isTimeout) {
+        markModelCooldown(currentModel, 45 * 1000);
+        if (hasNextModel) {
+          console.warn(`[Gemini] Model ${currentModel} timed out. Auto-switching to next candidate: ${CANDIDATE_MODELS[mIdx + 1]}`);
+          continue;
+        }
       } else {
         console.warn(`[Gemini] Model ${currentModel} encountered error:`, error?.message?.substring(0, 120) || error);
         if (hasNextModel) {
@@ -222,8 +236,8 @@ async function executeWithModelFallback<T>(
         try {
           return await withTimeout(
             operation(currentModel),
-            15000,
-            `Gemini model ${currentModel} final attempt timed out after 15s`
+            20000,
+            `Gemini model ${currentModel} final attempt timed out after 20s`
           );
         } catch (retryErr) {
           lastError = retryErr;

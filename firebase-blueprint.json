@@ -219,10 +219,60 @@
         "wornDate": {
           "type": "string",
           "maxLength": 10,
-          "pattern": "^\\\\d{4}-\\\\d{2}-\\\\d{2}$"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
         }
       },
       "required": ["garmentId", "userId", "wornDate"]
+    },
+    "familyMember": {
+      "title": "Family Member",
+      "description": "Represents an individual family member profile within the household wardrobe.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "relationship": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "relation": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "age": {
+          "type": "number",
+          "description": "Age of family member in years"
+        },
+        "gender": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "avatarColor": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "familyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": ["userId", "name", "relationship", "createdAt"]
     }
   },
   "firestore": {
@@ -233,6 +283,10 @@
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/userProfile" },
       "description": "User profiles. The document ID must match the Firebase Auth UID."
+    },
+    "/familyMembers/{memberId}": {
+      "schema": { "$ref": "#/entities/familyMember" },
+      "description": "Household family members profiles."
     },
     "/garments/{garmentId}": {
       "schema": { "$ref": "#/entities/garment" },

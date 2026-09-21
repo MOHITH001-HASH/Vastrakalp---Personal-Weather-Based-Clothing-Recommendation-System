@@ -26,9 +26,25 @@ service cloud.firestore {
         && (!('preferences' in data) || data.preferences is map);
     }
     
+    function isValidFamilyMember(data) {
+      return data.keys().hasAll(['userId', 'name', 'relationship', 'createdAt'])
+        && data.keys().size() >= 4 && data.keys().size() <= 15
+        && data.userId is string && data.userId.size() <= 128
+        && data.name is string && data.name.size() <= 100
+        && data.relationship is string && data.relationship.size() <= 50
+        && data.createdAt is number
+        && (!('age' in data) || (data.age is number && data.age >= 0 && data.age <= 150))
+        && (!('relation' in data) || (data.relation is string && data.relation.size() <= 50))
+        && (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 30))
+        && (!('gender' in data) || (data.gender is string && data.gender.size() <= 30))
+        && (!('familyId' in data) || (data.familyId is string && data.familyId.size() <= 128))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!('updatedAt' in data) || data.updatedAt is number);
+    }
+
     function isValidGarment(data) {
       return data.keys().hasAll(['ownerId', 'familyId', 'imageUrl', 'category', 'subCategory', 'primaryColorName', 'primaryColorHex', 'formalityScore', 'thermalWeight', 'createdAt', 'updatedAt'])
-        && data.keys().size() >= 10 && data.keys().size() <= 30
+        && data.keys().size() >= 10 && data.keys().size() <= 35
         && data.ownerId is string && data.ownerId.size() <= 128
         && data.familyId is string && data.familyId.size() <= 128
         && data.imageUrl is string && data.imageUrl.size() <= 1048576
@@ -40,6 +56,10 @@ service cloud.firestore {
         && data.thermalWeight is number && data.thermalWeight >= 1 && data.thermalWeight <= 5
         && data.createdAt is number
         && data.updatedAt is number
+        && (!('memberId' in data) || (data.memberId is string && data.memberId.size() <= 128))
+        && (!('memberName' in data) || (data.memberName is string && data.memberName.size() <= 100))
+        && (!('memberRelation' in data) || (data.memberRelation is string && data.memberRelation.size() <= 50))
+        && (!('userId' in data) || (data.userId is string && data.userId.size() <= 128))
         && (!('accentColors' in data) || data.accentColors is list)
         && (!('pattern' in data) || (data.pattern is string && data.pattern.size() <= 30))
         && (!('material' in data) || (data.material is string && data.material.size() <= 50))
@@ -184,6 +204,29 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidGarmentWear(incoming())
         && incoming().userId == request.auth.uid;
       allow delete: if isSignedIn() && resource.data.get('userId', '') == request.auth.uid;
+    }
+
+    // Family Members
+    match /familyMembers/{memberId} {
+      allow get: if isSignedIn() && (
+        resource.data.get('userId', '') == request.auth.uid
+        || resource.data.get('ownerId', '') == request.auth.uid
+        || (resource.data.get('familyId', '') != '' && isUserInFamily(request.auth.uid, resource.data.get('familyId', '')))
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid
+        || resource.data.get('ownerId', '') == request.auth.uid
+      );
+      allow create: if isSignedIn() && isValidFamilyMember(incoming())
+        && incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        resource.data.userId == request.auth.uid
+        || resource.data.get('ownerId', '') == request.auth.uid
+      ) && isValidFamilyMember(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && (
+        resource.data.userId == request.auth.uid
+        || resource.data.get('ownerId', '') == request.auth.uid
+      );
     }
   }
 }

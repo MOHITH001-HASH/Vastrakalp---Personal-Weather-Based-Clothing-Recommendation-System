@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Camera, Loader2, Check, Clock, RefreshCw, AlertCircle, Edit3, XCircle } from 'lucide-react';
+import { Upload, Camera, Loader2, Check, Clock, RefreshCw, AlertCircle, Edit3, XCircle, Users, User } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { FamilyMember } from '../types';
 
 export default function AddGarment() {
   const [image, setImage] = useState<File | null>(null);
@@ -16,10 +17,30 @@ export default function AddGarment() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [countdownReason, setCountdownReason] = useState<string>('');
   
+  // Family members state
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [targetMemberId, setTargetMemberId] = useState<string>('self');
+
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+
+  // Load family members
+  useEffect(() => {
+    async function loadMembers() {
+      if (!user) return;
+      try {
+        const q = query(collection(db, 'familyMembers'), where('userId', '==', user.uid));
+        const snap = await getDocs(q);
+        const members = snap.docs.map(d => ({ ...d.data(), id: d.id } as FamilyMember));
+        setFamilyMembers(members);
+      } catch (err) {
+        console.warn('Could not load family members in AddGarment:', err);
+      }
+    }
+    loadMembers();
+  }, [user]);
 
   // Auto-retry timer for TPM cooldown / Warmup
   useEffect(() => {
@@ -95,16 +116,24 @@ export default function AddGarment() {
     setError(null);
     setCountdown(null);
     setCountdownReason('');
-    console.log("Starting analysis with image...", image);
     try {
       const formData = new FormData();
-      const compressedImage = await resizeImage(image);
-      formData.append('image', compressedImage);
-      
-      const result = await api.analyzeGarment(formData);
-      setAttributesArray(Array.isArray(result) ? result : [result]);
-      setIsEditing(false);
+      const resized = await resizeImage(image);
+      formData.append('image', resized);
+
+      const data = await api.analyzeGarment(formData);
+
+      if (Array.isArray(data)) {
+        setAttributesArray(data);
+      } else if (data && data.items && Array.isArray(data.items)) {
+        setAttributesArray(data.items);
+      } else if (data) {
+        setAttributesArray([data]);
+      } else {
+        throw new Error('No structured attributes returned from analysis.');
+      }
     } catch (err: any) {
+      console.warn('Garment analysis encountered condition:', err);
       const isRateLimit =
         err?.isRateLimit ||
         err?.code === 'RATE_LIMIT_EXCEEDED' ||
@@ -117,47 +146,40 @@ export default function AddGarment() {
         err?.code === 'NETWORK_ERROR' ||
         err?.status === 0 ||
         err?.status === 502 ||
-        err?.status === 503 ||
-        err?.status === 504 ||
-        /warming up|restarting|interrupted|server did not respond|network error|failed to fetch/i.test(err?.message || '');
+        err?.status === 503;
 
       if (isRateLimit) {
-        console.warn('Gemini rate limit quota reached:', err?.message || err);
-        const retrySec = err?.retryAfterSeconds || 60;
-        setCountdown(retrySec);
-        setCountdownReason('Tokens Per Minute (TPM) limit reached on Gemini. Quota refreshes automatically.');
-        setError(`Rate limit reached (Tokens Per Minute). Automatic retry scheduled in ${retrySec} seconds.`);
+        const sec = err?.retryAfterSeconds || 60;
+        setCountdown(sec);
+        setCountdownReason(`Gemini Tokens Per Minute (TPM) limit reached. Waiting ${sec}s cooldown before automatic retry...`);
       } else if (isWarmup) {
-        console.warn('Backend server momentarily warming up or reconnecting:', err?.message || err);
-        const retrySec = err?.retryAfterSeconds || 2;
-        setCountdown(retrySec);
-        setCountdownReason('The backend server connection momentarily refreshed. Retrying automatically.');
-        setError(null);
+        const sec = err?.retryAfterSeconds || 5;
+        setCountdown(sec);
+        setCountdownReason(`Backend server is starting up or handling requests. Retrying in ${sec}s...`);
       } else {
-        console.error('Failed to analyze:', err);
-        setError(err.message || 'Analysis failed. You can retry or enter details manually.');
+        setError(err?.message || 'Failed to analyze garment image. You can enter details manually.');
       }
     } finally {
       setAnalyzing(false);
     }
   };
 
-  const handleManualEntry = () => {
+  const handleManualEntryFallback = () => {
     setCountdown(null);
     setCountdownReason('');
     setError(null);
     setIsEditing(true);
     setAttributesArray([
       {
-        name: 'New Wardrobe Item',
+        name: 'New Garment',
         category: 'top',
-        subCategory: 'T-Shirt',
-        primaryColorName: 'Black',
-        primaryColorHex: '#1f2937',
+        subCategory: 'Shirt',
+        primaryColorName: 'Navy Blue',
+        primaryColorHex: '#1e3a8a',
         pattern: 'Solid',
         material: 'Cotton',
         fit: 'Regular',
-        formalityScore: 2,
+        formalityScore: 3,
         thermalWeight: 2,
         included_pieces: [],
         styling_notes: ''
@@ -176,6 +198,11 @@ export default function AddGarment() {
         reader.readAsDataURL(storageFile);
       });
 
+      const isSelf = targetMemberId === 'self';
+      const assignedMember = familyMembers.find(m => m.id === targetMemberId);
+      const memberName = isSelf ? (profile?.firstName || 'You') : (assignedMember?.name || 'Family Member');
+      const memberRelation = isSelf ? 'self' : (assignedMember?.relationship || 'other');
+
       for (const attributes of attributesArray) {
         let hex = attributes.primaryColorHex || '#000000';
         if (!hex.startsWith('#')) hex = '#' + hex;
@@ -189,7 +216,6 @@ export default function AddGarment() {
         const finalCategory = validCategories.includes(cat) ? cat : (validCategories.find(c => cat.includes(c)) || 'accessory');
 
         const now = Date.now();
-        
         const payload: any = {
           ...attributes,
           name: (attributes.name || '').slice(0, 100),
@@ -206,7 +232,11 @@ export default function AddGarment() {
           styling_notes: attributes.styling_notes || '',
           imageUrl: base64Url,
           ownerId: user.uid,
+          userId: user.uid,
           familyId: profile.familyId,
+          memberId: targetMemberId,
+          memberName: memberName,
+          memberRelation: memberRelation,
           isUserModified: false,
           isFavorite: false,
           createdAt: now,
@@ -238,29 +268,89 @@ export default function AddGarment() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Add to Wardrobe</h1>
-        <p className="text-stone-500 mt-1">Upload a photo to automatically extract garment details.</p>
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6">
+      <header className="mb-2">
+        <h1 className="text-3xl font-bold tracking-tight text-stone-900">Add to Wardrobe</h1>
+        <p className="text-stone-500 text-sm mt-1">Upload a photo to automatically extract garment details and assign to a family member.</p>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm flex flex-col items-center justify-center min-h-[400px]">
+      {/* Assign Garment to Family Member Card */}
+      <div className="bg-white p-5 rounded-3xl border border-stone-200/80 shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center gap-1.5">
+            <Users className="w-4 h-4 text-stone-500" />
+            <span>Wardrobe Belongs To</span>
+          </label>
+          <span className="text-xs text-stone-500">Select family member</span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <button
+            type="button"
+            onClick={() => setTargetMemberId('self')}
+            className={`p-3 rounded-2xl border text-left text-xs font-semibold transition-all flex items-center gap-2.5 ${
+              targetMemberId === 'self'
+                ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                : 'border-stone-200 bg-stone-50/60 text-stone-700 hover:bg-stone-100'
+            }`}
+          >
+            <div className="w-6 h-6 rounded-xl bg-amber-500 text-white flex items-center justify-center text-xs font-bold">
+              {(profile?.firstName || 'Y').charAt(0).toUpperCase()}
+            </div>
+            <div className="truncate">
+              <div>{profile?.firstName || 'You'}</div>
+              <div className={`text-[10px] font-normal ${targetMemberId === 'self' ? 'text-stone-300' : 'text-stone-400'}`}>Self</div>
+            </div>
+          </button>
+
+          {familyMembers.map((member) => {
+            const isSelected = targetMemberId === member.id;
+            return (
+              <button
+                key={member.id}
+                type="button"
+                onClick={() => setTargetMemberId(member.id)}
+                className={`p-3 rounded-2xl border text-left text-xs font-semibold transition-all flex items-center gap-2.5 ${
+                  isSelected
+                    ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                    : 'border-stone-200 bg-stone-50/60 text-stone-700 hover:bg-stone-100'
+                }`}
+              >
+                <div 
+                  className="w-6 h-6 rounded-xl text-white flex items-center justify-center text-xs font-bold shadow-xs"
+                  style={{ backgroundColor: member.avatarColor || '#ec4899' }}
+                >
+                  {member.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="truncate">
+                  <div>{member.name}</div>
+                  <div className={`text-[10px] font-normal capitalize ${isSelected ? 'text-stone-300' : 'text-stone-400'}`}>
+                    {member.relationship}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-3xl border border-stone-200/80 shadow-xs flex flex-col items-center justify-center min-h-[400px]">
           {preview ? (
             <div className="relative w-full h-full flex flex-col items-center">
-              <img src={preview} alt="Garment preview" className="max-h-80 object-contain rounded-xl mb-6" />
-              <div className="flex gap-4">
+              <img src={preview} alt="Garment preview" className="max-h-80 object-contain rounded-2xl mb-6 shadow-sm border border-stone-100" />
+              <div className="flex gap-3">
                 <button 
-                  onClick={() => { setImage(null); setPreview(null); setAttributesArray(null);  setError(null); }}
-                  className="px-4 py-2 text-sm font-medium text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-lg transition"
+                  onClick={() => { setImage(null); setPreview(null); setAttributesArray(null); setError(null); }}
+                  className="px-4 py-2 text-xs font-semibold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl transition"
                 >
-                  Clear
+                  Clear Photo
                 </button>
                 {!attributesArray && (
                   <button 
                     onClick={handleAnalyze}
                     disabled={analyzing}
-                    className="flex items-center px-6 py-2 text-sm font-medium text-white bg-stone-900 hover:bg-stone-800 rounded-lg transition disabled:opacity-50"
+                    className="flex items-center px-6 py-2 text-xs font-semibold text-white bg-stone-900 hover:bg-stone-800 rounded-xl transition disabled:opacity-50"
                   >
                     {analyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
                     Analyze Garment
@@ -269,305 +359,165 @@ export default function AddGarment() {
               </div>
             </div>
           ) : (
-            <div className="text-center">
-              <div className="w-16 h-16 bg-stone-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-stone-300">
-                <Camera className="w-6 h-6 text-stone-400" />
+            <div className="text-center p-6">
+              <div className="w-16 h-16 bg-stone-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border-2 border-dashed border-stone-300 text-stone-400">
+                <Camera className="w-7 h-7" />
               </div>
-              <h3 className="font-medium text-stone-900 mb-1">Upload Photo</h3>
-              <p className="text-sm text-stone-500 mb-6">JPEG or PNG, up to 10MB</p>
+              <h3 className="font-semibold text-stone-900 mb-1">Upload Photo</h3>
+              <p className="text-xs text-stone-500 mb-6">JPEG or PNG, clear image of clothing</p>
               <input 
                 type="file" 
                 accept="image/*" 
-                className="hidden" 
                 ref={fileInputRef} 
-                onChange={handleFileChange}
+                onChange={handleFileChange} 
+                className="hidden" 
               />
               <button 
                 onClick={() => fileInputRef.current?.click()}
-                className="px-6 py-2 bg-stone-900 text-white font-medium rounded-xl hover:bg-stone-800 transition"
+                className="px-6 py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-2xl text-xs font-semibold transition shadow-sm cursor-pointer"
               >
-                Select File
+                Choose Photo
               </button>
             </div>
           )}
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm">
-          <div className="flex items-center justify-between border-b border-stone-100 pb-4 mb-4">
-            <h3 className="font-semibold text-lg">
-              AI Extracted Details
-            </h3>
-            {attributesArray && attributesArray.length > 0 && (
+        <div className="bg-white p-6 rounded-3xl border border-stone-200/80 shadow-xs flex flex-col">
+          <div className="flex items-center justify-between mb-4 pb-2 border-b border-stone-100">
+            <h2 className="text-base font-bold text-stone-900">Garment Tagging</h2>
+            {attributesArray && (
               <button 
                 onClick={() => setIsEditing(!isEditing)}
-                className="text-sm font-medium text-stone-600 hover:text-stone-900 transition"
+                className="text-xs font-semibold text-stone-600 hover:text-stone-900 underline"
               >
-                {isEditing ? 'Done' : 'Edit'}
+                {isEditing ? 'Done Editing' : 'Edit Attributes'}
               </button>
             )}
           </div>
-          
-          {!attributesArray && !analyzing && !error && countdown === null && (
-            <div className="h-48 flex items-center justify-center text-stone-400 text-sm">
-              Upload and analyze an image to see details here.
-            </div>
-          )}
-          
-          {/* Active Countdown Banner for TPM / Warmup */}
+
           {countdown !== null && (
-            <div className="p-5 bg-amber-50 border border-amber-200 rounded-2xl space-y-3 mb-4">
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 mt-0.5 text-amber-700">
-                  <Clock className="w-5 h-5 animate-spin" />
+            <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-amber-900 font-semibold text-xs">
+                  <Clock className="w-4 h-4 animate-spin text-amber-700" />
+                  <span>Cooldown Active</span>
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-amber-900 text-sm">
-                      {countdownReason.includes('connection') || countdownReason.includes('reconnect') || countdownReason.includes('server')
-                        ? 'Server Reconnecting'
-                        : 'Rate Limit Cooldown Active'}
-                    </p>
-                    <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-200 text-amber-900">
-                      {countdown}s remaining
-                    </span>
-                  </div>
-                  <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                    {countdownReason || 'Tokens Per Minute (TPM) quota reached. The application will automatically retry once quota refreshes.'}
-                  </p>
-                </div>
+                <span className="text-xs font-bold px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full">
+                  {countdown}s remaining
+                </span>
               </div>
-
-              {/* Progress bar */}
-              <div className="w-full bg-amber-200 h-1.5 rounded-full overflow-hidden">
-                <div 
-                  className="bg-amber-600 h-full transition-all duration-1000"
-                  style={{ width: `${Math.max(0, Math.min(100, (countdown / 60) * 100))}%` }}
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 pt-1">
+              <p className="text-xs text-amber-800 leading-relaxed">{countdownReason}</p>
+              <div className="flex items-center gap-2 pt-1">
                 <button
                   onClick={() => { setCountdown(null); handleAnalyze(); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition"
+                  className="flex items-center gap-1 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3 h-3" />
                   Retry Now
                 </button>
                 <button
-                  onClick={() => { setCountdown(null); setCountdownReason(''); }}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 rounded-lg text-xs font-medium transition"
+                  onClick={handleManualEntryFallback}
+                  className="flex items-center gap-1 px-3 py-1 bg-stone-900 text-white hover:bg-stone-800 rounded-lg text-xs font-semibold ml-auto transition cursor-pointer"
                 >
-                  <XCircle className="w-3.5 h-3.5" />
-                  Cancel Timer
-                </button>
-                <button
-                  onClick={handleManualEntry}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-900 text-white hover:bg-stone-800 rounded-lg text-xs font-semibold ml-auto transition"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
+                  <Edit3 className="w-3 h-3" />
                   Enter Details Manually
                 </button>
               </div>
             </div>
           )}
 
-          {/* Error Banner when not in countdown */}
           {error && countdown === null && (
-            <div className="p-5 bg-rose-50 border border-rose-200 rounded-2xl space-y-3 mb-4">
-              <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center shrink-0 text-rose-700">
-                  <AlertCircle className="w-5 h-5" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-rose-900 text-sm">Analysis Unavailable</p>
-                  <p className="text-xs text-rose-800 mt-1 leading-relaxed">{error}</p>
-                </div>
+            <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2">
+              <div className="flex items-center gap-2 text-rose-900 font-semibold text-xs">
+                <AlertCircle className="w-4 h-4 text-rose-700" />
+                <span>Extraction Notice</span>
               </div>
-              <div className="flex flex-wrap items-center gap-2 pt-1">
+              <p className="text-xs text-rose-800 leading-relaxed">{error}</p>
+              <div className="flex items-center gap-2 pt-1">
                 <button
                   onClick={handleAnalyze}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold transition"
+                  className="flex items-center gap-1 px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold transition cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3 h-3" />
                   Retry Analysis
                 </button>
                 <button
-                  onClick={handleManualEntry}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-stone-900 text-white hover:bg-stone-800 rounded-lg text-xs font-semibold ml-auto transition"
+                  onClick={handleManualEntryFallback}
+                  className="flex items-center gap-1 px-3 py-1 bg-stone-900 text-white hover:bg-stone-800 rounded-lg text-xs font-semibold ml-auto transition cursor-pointer"
                 >
-                  <Edit3 className="w-3.5 h-3.5" />
+                  <Edit3 className="w-3 h-3" />
                   Enter Details Manually
                 </button>
               </div>
             </div>
           )}
-          
-          {analyzing && (
-            <div className="h-48 flex flex-col items-center justify-center text-stone-500 space-y-4">
-              <Loader2 className="w-8 h-8 animate-spin text-stone-400" />
-              <p className="text-sm animate-pulse">Running Gemini Multimodal Analysis (with model fallback)...</p>
-            </div>
-          )}
 
-          {attributesArray && attributesArray.length > 0 && (
-            <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
-              <div className="text-sm font-medium text-stone-500 mb-2 border-b border-stone-100 pb-2 flex items-center justify-between">
-                <span>Found {attributesArray.length} items in this outfit</span>
-                {!isEditing && (
-                  <span className="text-xs text-stone-400">Click &quot;Edit Details&quot; to customize</span>
-                )}
-              </div>
+          {attributesArray && attributesArray.length > 0 ? (
+            <div className="space-y-4 flex-1 overflow-y-auto">
               {attributesArray.map((attributes, index) => (
-                <div key={index} className="p-4 bg-stone-50 rounded-2xl border border-stone-100 space-y-4">
-                  
-                  <div className="col-span-2 mb-2">
-                    <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Title</label>
+                <div key={index} className="p-4 bg-stone-50 rounded-2xl border border-stone-200/80 space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Title</label>
                     {isEditing ? (
-                      <input
-                        type="text"
-                        value={attributes.name || ''}
+                      <input 
+                        type="text" 
+                        value={attributes.name || ''} 
                         onChange={(e) => updateAttribute(index, 'name', e.target.value)}
-                        className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white font-semibold"
-                        placeholder="Garment Name"
+                        className="w-full px-3 py-1.5 border border-stone-200 rounded-xl text-xs bg-white"
                       />
                     ) : (
-                      <div className="font-semibold text-lg text-stone-900">{attributes.name}</div>
+                      <p className="font-semibold text-stone-900 text-sm">{attributes.name}</p>
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Category</label>
-                      {isEditing ? (
-                        <select
-                          value={attributes.category || ''}
-                          onChange={(e) => updateAttribute(index, 'category', e.target.value)}
-                          className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white"
-                        >
-                          <option value="top">Top</option>
-                          <option value="bottom">Bottom</option>
-                          <option value="outerwear">Outerwear</option>
-                          <option value="footwear">Footwear</option>
-                          <option value="accessory">Accessory</option>
-                          <option value="suit">Suit</option>
-                          <option value="kurta_set">Kurta Set</option>
-                          <option value="tuxedo">Tuxedo</option>
-                          <option value="co_ord_set">Co-ord Set</option>
-                        </select>
-                      ) : (
-                        <div className="font-medium text-stone-900 capitalize">{attributes.category}</div>
-                      )}
+                      <label className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Category</label>
+                      <p className="text-xs font-medium text-stone-800 capitalize">{attributes.category}</p>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Sub-Category</label>
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={attributes.subCategory || ''}
-                          onChange={(e) => updateAttribute(index, 'subCategory', e.target.value)}
-                          className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white"
-                        />
-                      ) : (
-                        <div className="font-medium text-stone-900 capitalize">{attributes.subCategory}</div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Color</label>
-                      {isEditing ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={attributes.primaryColorHex || '#000000'}
-                            onChange={(e) => updateAttribute(index, 'primaryColorHex', e.target.value)}
-                            className="w-8 h-8 rounded cursor-pointer border-0 p-0 shrink-0"
-                          />
-                          <input
-                            type="text"
-                            value={attributes.primaryColorName || ''}
-                            onChange={(e) => updateAttribute(index, 'primaryColorName', e.target.value)}
-                            className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white"
-                            placeholder="Color Name"
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex items-center">
-                          <div 
-                            className="w-4 h-4 rounded-full border border-stone-200 mr-2 shrink-0" 
-                            style={{ backgroundColor: attributes.primaryColorHex }}
-                          />
-                          <span className="font-medium text-sm text-stone-900">{attributes.primaryColorName}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Material</label>
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={attributes.material || ''}
-                          onChange={(e) => updateAttribute(index, 'material', e.target.value)}
-                          className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm bg-white"
-                        />
-                      ) : (
-                        <div className="font-medium text-stone-900 capitalize">{attributes.material || 'Unknown'}</div>
-                      )}
+                      <label className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Color</label>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3.5 h-3.5 rounded-full border border-stone-300" style={{ backgroundColor: attributes.primaryColorHex }} />
+                        <span className="text-xs font-medium text-stone-800 capitalize">{attributes.primaryColorName}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Formality (1-5)</label>
-                      {isEditing ? (
-                        <input
-                          type="range"
-                          min="1" max="5"
-                          value={attributes.formalityScore || 3}
-                          onChange={(e) => updateAttribute(index, 'formalityScore', parseInt(e.target.value))}
-                          className="w-full accent-stone-900"
-                        />
-                      ) : (
-                        <div className="flex gap-1 mt-1">
-                          {[1,2,3,4,5].map(i => (
-                            <div key={i} className={`w-2 h-2 rounded-full ${i <= attributes.formalityScore ? 'bg-stone-900' : 'bg-stone-200'}`} />
-                          ))}
-                        </div>
-                      )}
+                      <label className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Formality</label>
+                      <p className="text-xs font-medium text-stone-800">{attributes.formalityScore}/5</p>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Warmth (1-5)</label>
-                      {isEditing ? (
-                        <input
-                          type="range"
-                          min="1" max="5"
-                          value={attributes.thermalWeight || 3}
-                          onChange={(e) => updateAttribute(index, 'thermalWeight', parseInt(e.target.value))}
-                          className="w-full accent-orange-500"
-                        />
-                      ) : (
-                        <div className="flex gap-1 mt-1">
-                          {[1,2,3,4,5].map(i => (
-                            <div key={i} className={`w-2 h-2 rounded-full ${i <= attributes.thermalWeight ? 'bg-orange-500' : 'bg-stone-200'}`} />
-                          ))}
-                        </div>
-                      )}
+                      <label className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wider mb-1">Warmth</label>
+                      <p className="text-xs font-medium text-stone-800">{attributes.thermalWeight}/5</p>
                     </div>
                   </div>
                 </div>
               ))}
-              
-              <div className="pt-6 border-t border-stone-100 mt-6 sticky bottom-0 bg-white pb-2">
-                <button
+
+              <div className="pt-4 mt-auto">
+                <button 
                   onClick={handleSave}
-                  disabled={saving || isEditing}
-                  className="w-full flex items-center justify-center py-3 px-4 bg-stone-900 hover:bg-stone-800 text-white font-medium rounded-xl transition disabled:opacity-50"
+                  disabled={saving}
+                  className="w-full flex items-center justify-center py-3 bg-stone-900 hover:bg-stone-800 text-white rounded-2xl text-xs font-semibold transition disabled:opacity-50 shadow-sm"
                 >
-                  {saving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Check className="w-5 h-5 mr-2" />}
-                  {isEditing ? 'Save Edits First' : `Confirm & Add ${attributesArray.length} items to Closet`}
+                  {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
+                  Save to Wardrobe
                 </button>
               </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-stone-400 p-8">
+              {analyzing ? (
+                <>
+                  <Loader2 className="w-8 h-8 animate-spin mb-2 text-stone-600" />
+                  <p className="text-xs font-medium text-stone-700">Analyzing fabrics & silhouettes with Gemini AI...</p>
+                </>
+              ) : (
+                <p className="text-xs">Upload an image and click analyze to extract attributes.</p>
+              )}
             </div>
           )}
         </div>

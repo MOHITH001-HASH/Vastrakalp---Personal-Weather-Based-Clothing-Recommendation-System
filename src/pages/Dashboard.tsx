@@ -13,7 +13,6 @@ import {
   Thermometer,
   Wind,
   Plus,
-  History,
   Loader2,
   Check,
   MapPin,
@@ -77,9 +76,7 @@ function getTimeGreeting(): string {
 export default function Dashboard() {
   const { user, profile, updateProfileName } = useAuth();
   const [garments, setGarments] = useState<any[]>([]);
-  const [history, setHistory] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
-  const [logging, setLogging] = useState<string | null>(null);
 
   // User name editing states
   const [isEditingName, setIsEditingName] = useState(false);
@@ -256,31 +253,6 @@ export default function Dashboard() {
         } catch {
           // Ignore cache save error
         }
-
-        const wQuery = query(collection(db, 'garmentWears'), where('userId', '==', user.uid));
-        const wSnapshot = await getDocs(wQuery);
-        const wData = wSnapshot.docs.map((doc) => doc.data());
-
-        const grouped: Record<string, any[]> = {};
-        wData.forEach((wear) => {
-          const garment = gData.find((g) => g.id === wear.garmentId);
-          if (garment) {
-            if (!grouped[wear.wornDate]) grouped[wear.wornDate] = [];
-            grouped[wear.wornDate].push(garment);
-          }
-        });
-
-        const sortedGroups: Record<string, any[]> = {};
-        Object.keys(grouped)
-          .sort((a, b) => b.localeCompare(a))
-          .forEach((date) => {
-            const uniqueGarments = grouped[date].filter(
-              (v, i, a) => a.findIndex((t) => t.id === v.id) === i
-            );
-            sortedGroups[date] = uniqueGarments;
-          });
-
-        setHistory(sortedGroups);
       } catch (error) {
         console.warn('Operating with local dashboard cache while connecting to Firestore:', error);
       } finally {
@@ -458,43 +430,6 @@ export default function Dashboard() {
     }
   }, [garments.length, !!weather]);
 
-  // Quick re-log an outfit from history
-  const handleReLog = async (date: string) => {
-    if (!user) return;
-    setLogging(date);
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const garmentsToLog = history[date];
-
-      const promises = garmentsToLog.map((g) =>
-        addDoc(collection(db, 'garmentWears'), {
-          garmentId: g.id,
-          userId: user.uid,
-          wornDate: today,
-        })
-      );
-
-      await Promise.all(promises);
-
-      setHistory((prev) => {
-        const next = { ...prev };
-        next[today] = garmentsToLog;
-        const sortedGroups: Record<string, any[]> = {};
-        Object.keys(next)
-          .sort((a, b) => b.localeCompare(a))
-          .forEach((d) => {
-            sortedGroups[d] = next[d];
-          });
-        return sortedGroups;
-      });
-    } catch (error) {
-      console.error('Failed to relog outfit:', error);
-      alert('Failed to log outfit.');
-    } finally {
-      setTimeout(() => setLogging(null), 1000);
-    }
-  };
-
   // Log today's suggested outfit directly from the Dashboard
   const handleLogSuggestedOutfit = async () => {
     if (!user || suggestedItems.length === 0) return;
@@ -510,19 +445,6 @@ export default function Dashboard() {
       );
 
       await Promise.all(promises);
-
-      setHistory((prev) => {
-        const next = { ...prev };
-        next[today] = suggestedItems;
-        const sortedGroups: Record<string, any[]> = {};
-        Object.keys(next)
-          .sort((a, b) => b.localeCompare(a))
-          .forEach((d) => {
-            sortedGroups[d] = next[d];
-          });
-        return sortedGroups;
-      });
-
       setSuggestedOutfitLogged(true);
     } catch (err) {
       console.error('Failed to log suggested outfit:', err);
@@ -556,17 +478,123 @@ export default function Dashboard() {
     }
   };
 
+  // Dynamic climate & weather themed style variables
+  const getWeatherCardStyles = () => {
+    const icon = weather?.current?.icon;
+    const tempC = weather?.current?.temperature_c ?? 22;
+    const isHot = tempC >= 28;
+    const isCold = tempC <= 6;
+
+    if (icon === 'CloudLightning') {
+      return {
+        cardBg: 'bg-gradient-to-br from-[#f5f0ff] via-[#ebe4ff] to-[#ddd0fc]',
+        borderColor: 'border-purple-200/90',
+        headerBorder: 'border-purple-200/80',
+        iconBoxBg: 'bg-purple-100/90 border border-purple-300 text-purple-700 shadow-xs',
+        statBoxBg: 'bg-white/85 border-purple-200/80 backdrop-blur-xs',
+        adviceBoxBg: 'bg-purple-100/60 border-purple-200 text-purple-950',
+        glowColor: 'bg-indigo-400/25',
+        unitToggleBg: 'border-purple-200 bg-purple-100/70',
+        activeBtnBg: 'hover:bg-purple-200/60 text-purple-900',
+      };
+    }
+
+    if (icon === 'CloudRain' || icon === 'CloudDrizzle') {
+      return {
+        cardBg: 'bg-gradient-to-br from-[#eaf4fc] via-[#dcebf8] to-[#c7dff3]',
+        borderColor: 'border-sky-200/90',
+        headerBorder: 'border-sky-200/80',
+        iconBoxBg: 'bg-sky-100/90 border border-sky-300 text-sky-700 shadow-xs',
+        statBoxBg: 'bg-white/85 border-sky-200/80 backdrop-blur-xs',
+        adviceBoxBg: 'bg-sky-100/60 border-sky-200 text-sky-950',
+        glowColor: 'bg-sky-400/25',
+        unitToggleBg: 'border-sky-200 bg-sky-100/70',
+        activeBtnBg: 'hover:bg-sky-200/60 text-sky-900',
+      };
+    }
+
+    if (icon === 'CloudSnow' || isCold) {
+      return {
+        cardBg: 'bg-gradient-to-br from-[#f2f9ff] via-[#e4f2fe] to-[#d2eafc]',
+        borderColor: 'border-cyan-200/90',
+        headerBorder: 'border-cyan-200/80',
+        iconBoxBg: 'bg-cyan-100/90 border border-cyan-300 text-cyan-700 shadow-xs',
+        statBoxBg: 'bg-white/85 border-cyan-200/80 backdrop-blur-xs',
+        adviceBoxBg: 'bg-cyan-100/60 border-cyan-200 text-cyan-950',
+        glowColor: 'bg-cyan-300/30',
+        unitToggleBg: 'border-cyan-200 bg-cyan-100/70',
+        activeBtnBg: 'hover:bg-cyan-200/60 text-cyan-900',
+      };
+    }
+
+    if (icon === 'Cloud' || icon === 'CloudFog') {
+      return {
+        cardBg: 'bg-gradient-to-br from-[#f4f6f8] via-[#e8ecf1] to-[#d8dfe8]',
+        borderColor: 'border-slate-300/90',
+        headerBorder: 'border-slate-200/90',
+        iconBoxBg: 'bg-slate-200/90 border border-slate-300 text-slate-700 shadow-xs',
+        statBoxBg: 'bg-white/85 border-slate-300/80 backdrop-blur-xs',
+        adviceBoxBg: 'bg-slate-200/60 border-slate-300 text-slate-900',
+        glowColor: 'bg-slate-400/20',
+        unitToggleBg: 'border-slate-300 bg-slate-200/70',
+        activeBtnBg: 'hover:bg-slate-200 text-slate-900',
+      };
+    }
+
+    if (icon === 'CloudSun') {
+      return {
+        cardBg: 'bg-gradient-to-br from-[#eef6fc] via-[#f7f5ed] to-[#fef6dc]',
+        borderColor: 'border-amber-200/80',
+        headerBorder: 'border-amber-100',
+        iconBoxBg: 'bg-amber-100/90 border border-amber-300 text-amber-700 shadow-xs',
+        statBoxBg: 'bg-white/85 border-amber-200/60 backdrop-blur-xs',
+        adviceBoxBg: 'bg-amber-100/50 border-amber-200 text-amber-950',
+        glowColor: 'bg-amber-300/25',
+        unitToggleBg: 'border-amber-200 bg-amber-100/60',
+        activeBtnBg: 'hover:bg-amber-100 text-amber-950',
+      };
+    }
+
+    if (isHot) {
+      return {
+        cardBg: 'bg-gradient-to-br from-[#fff7ed] via-[#ffedd5] to-[#fef08a]/90',
+        borderColor: 'border-amber-300',
+        headerBorder: 'border-amber-200',
+        iconBoxBg: 'bg-amber-100/95 border border-amber-400 text-amber-800 shadow-xs',
+        statBoxBg: 'bg-white/85 border-amber-200 backdrop-blur-xs',
+        adviceBoxBg: 'bg-amber-100/70 border-amber-300 text-amber-950',
+        glowColor: 'bg-orange-400/30',
+        unitToggleBg: 'border-amber-300 bg-amber-100/70',
+        activeBtnBg: 'hover:bg-amber-200/60 text-amber-950',
+      };
+    }
+
+    // Default Clear & Sunny Sky
+    return {
+      cardBg: 'bg-gradient-to-br from-[#eef7ff] via-[#e2efff] to-[#fef3c7]',
+      borderColor: 'border-sky-200',
+      headerBorder: 'border-sky-200/70',
+      iconBoxBg: 'bg-amber-100/90 border border-amber-300 text-amber-700 shadow-xs',
+      statBoxBg: 'bg-white/85 border-sky-200/70 backdrop-blur-xs',
+      adviceBoxBg: 'bg-amber-100/50 border-amber-200 text-amber-950',
+      glowColor: 'bg-amber-300/35',
+      unitToggleBg: 'border-sky-200 bg-sky-100/60',
+      activeBtnBg: 'hover:bg-sky-100 text-sky-950',
+    };
+  };
+
   // Get matching garment items for the suggested outfit
   const suggestedItems = getSuggestedGarments(suggestedOutfit, garments);
   const primaryAttendee = suggestedOutfit?.attending_outfits?.[0] || suggestedOutfit?.members?.[0];
+  const weatherTheme = getWeatherCardStyles();
 
   return (
-    <div id="dashboard-container" className="p-4 sm:p-8 max-w-6xl mx-auto space-y-8">
+    <div id="dashboard-container" className="p-4 sm:p-8 max-w-6xl mx-auto space-y-7">
       {/* Top Header */}
       <header id="dashboard-header">
         <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-3xl font-bold tracking-tight text-stone-900 flex items-center gap-2 flex-wrap">
-            <span>{getTimeGreeting()},</span>
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-stone-950 flex items-center gap-2.5 flex-wrap font-serif">
+            <span className="text-stone-900">{getTimeGreeting()},</span>
             {isEditingName ? (
               <span className="inline-flex items-center gap-1.5 align-middle">
                 <input
@@ -575,12 +603,12 @@ export default function Dashboard() {
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
                   onKeyDown={handleNameKeyDown}
-                  className="text-2xl sm:text-3xl font-bold tracking-tight text-stone-900 px-2 py-0.5 border-b-2 border-stone-800 bg-stone-100/80 rounded-md outline-none max-w-[200px]"
+                  className="text-2xl sm:text-3xl font-bold tracking-tight text-stone-950 px-2.5 py-0.5 border-b-2 border-amber-800 bg-amber-50 rounded-lg outline-none max-w-[220px]"
                   placeholder="Your Name"
                 />
                 <button
                   onClick={handleSaveName}
-                  className="p-1.5 bg-stone-900 text-white hover:bg-stone-800 rounded-lg transition"
+                  className="p-1.5 bg-stone-950 text-amber-100 hover:bg-stone-800 rounded-xl transition shadow-xs"
                   title="Save Name"
                 >
                   <Check className="w-4 h-4" />
@@ -590,7 +618,7 @@ export default function Dashboard() {
                     setNameInput(profile?.firstName || '');
                     setIsEditingName(false);
                   }}
-                  className="p-1.5 bg-stone-200 text-stone-600 hover:bg-stone-300 rounded-lg transition"
+                  className="p-1.5 bg-[#ede5d8] text-stone-700 hover:bg-[#e2d8c8] rounded-xl transition"
                   title="Cancel"
                 >
                   <X className="w-4 h-4" />
@@ -598,7 +626,7 @@ export default function Dashboard() {
               </span>
             ) : (
               <span className="inline-flex items-center gap-2 group cursor-pointer" onClick={() => setIsEditingName(true)}>
-                <span className="hover:text-stone-700 transition" title="Click to edit name">
+                <span className="text-amber-900 hover:text-amber-950 transition border-b-2 border-transparent hover:border-amber-700/50" title="Click to edit name">
                   {profile?.firstName || 'there'}
                 </span>
                 <button
@@ -606,7 +634,7 @@ export default function Dashboard() {
                     e.stopPropagation();
                     setIsEditingName(true);
                   }}
-                  className="p-1.5 text-stone-400 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition"
+                  className="p-1.5 text-stone-400 hover:text-amber-900 hover:bg-amber-100/60 rounded-lg transition"
                   title="Edit your name"
                 >
                   <Pencil className="w-4 h-4" />
@@ -615,9 +643,6 @@ export default function Dashboard() {
             )}
           </h1>
         </div>
-        <p className="text-stone-500 mt-1">
-          Real-time local weather context and tailored wardrobe styling.
-        </p>
       </header>
 
       {/* Main Weather & Styling Context Grid */}
@@ -625,14 +650,21 @@ export default function Dashboard() {
         {/* Weather Card (5 cols on lg) */}
         <div
           id="weather-card"
-          className="lg:col-span-5 bg-gradient-to-br from-white to-stone-50/70 rounded-3xl p-6 border border-stone-200/80 shadow-sm flex flex-col justify-between relative overflow-hidden"
+          className={`lg:col-span-5 ${weatherTheme.cardBg} rounded-3xl p-6 border ${weatherTheme.borderColor} shadow-md flex flex-col justify-between relative overflow-hidden transition-all duration-500`}
         >
+          {/* Ambient atmospheric glow circle */}
+          <div
+            className={`absolute -top-12 -right-12 w-52 h-52 rounded-full blur-3xl pointer-events-none ${weatherTheme.glowColor} transition-colors duration-700`}
+          />
+
           {/* Header & Location Controls */}
-          <div>
-            <div className="flex items-center justify-between gap-2 pb-3 border-b border-stone-100">
+          <div className="relative z-1">
+            <div className={`flex items-center justify-between gap-2 pb-3 border-b ${weatherTheme.headerBorder}`}>
               <div className="flex items-center gap-2 min-w-0">
-                <MapPin className="w-4 h-4 text-rose-500 shrink-0" />
-                <span className="font-semibold text-stone-900 text-sm truncate">
+                <div className="w-6 h-6 rounded-lg bg-white/80 shadow-2xs flex items-center justify-center shrink-0">
+                  <MapPin className="w-3.5 h-3.5 text-rose-600" />
+                </div>
+                <span className="font-bold text-stone-900 text-sm truncate">
                   {weather?.location?.cityName || 'Detecting Location...'}
                 </span>
               </div>
@@ -640,21 +672,21 @@ export default function Dashboard() {
                 <button
                   id="search-city-btn"
                   onClick={() => setShowSearch(!showSearch)}
-                  className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition text-xs flex items-center gap-1 font-medium"
+                  className={`px-2.5 py-1 rounded-lg bg-white/70 hover:bg-white text-stone-800 transition text-xs flex items-center gap-1 font-semibold shadow-2xs border border-white/60`}
                   title="Change City"
                 >
-                  <Search className="w-3.5 h-3.5" />
+                  <Search className="w-3.5 h-3.5 text-stone-600" />
                   <span className="hidden sm:inline">Change</span>
                 </button>
                 <button
                   id="gps-location-btn"
                   onClick={handleUseGps}
                   disabled={locatingGps}
-                  className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition text-xs"
+                  className={`p-1.5 rounded-lg bg-white/70 hover:bg-white text-stone-800 transition text-xs shadow-2xs border border-white/60`}
                   title="Use My Current GPS Location"
                 >
                   {locatingGps ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-stone-700" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-800" />
                   ) : (
                     <Compass className="w-3.5 h-3.5" />
                   )}
@@ -669,10 +701,10 @@ export default function Dashboard() {
                     )
                   }
                   disabled={weatherLoading}
-                  className="p-1.5 rounded-lg text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition text-xs"
+                  className={`p-1.5 rounded-lg bg-white/70 hover:bg-white text-stone-800 transition text-xs shadow-2xs border border-white/60`}
                   title="Refresh Weather Data"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${weatherLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${weatherLoading ? 'animate-spin text-amber-800' : ''}`} />
                 </button>
               </div>
             </div>
@@ -681,16 +713,16 @@ export default function Dashboard() {
             {showSearch && (
               <div
                 id="city-search-overlay"
-                className="mt-3 p-3 bg-white rounded-2xl border border-stone-200 shadow-lg animate-in fade-in slide-in-from-top-2 duration-200 z-10"
+                className="mt-3 p-3.5 bg-white/95 backdrop-blur-md rounded-2xl border border-stone-200/90 shadow-xl animate-in fade-in slide-in-from-top-2 duration-200 z-20 relative"
               >
                 <div className="flex items-center gap-2 border-b border-stone-100 pb-2 mb-2">
-                  <Search className="w-4 h-4 text-stone-400" />
+                  <Search className="w-4 h-4 text-amber-700" />
                   <input
                     type="text"
                     placeholder="Search city (e.g., Paris, Tokyo, Mumbai, NYC)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full text-sm outline-none bg-transparent placeholder-stone-400"
+                    className="w-full text-sm outline-none bg-transparent placeholder-stone-400 font-medium text-stone-900"
                     autoFocus
                   />
                   <button
@@ -699,14 +731,14 @@ export default function Dashboard() {
                       setSearchQuery('');
                       setSearchResults([]);
                     }}
-                    className="text-stone-400 hover:text-stone-600 p-1"
+                    className="text-stone-400 hover:text-stone-700 p-1"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
                 {searching && (
-                  <div className="flex items-center justify-center py-4 text-xs text-stone-500">
+                  <div className="flex items-center justify-center py-4 text-xs font-medium text-amber-900">
                     <Loader2 className="w-4 h-4 animate-spin mr-2" /> Searching cities...
                   </div>
                 )}
@@ -722,10 +754,10 @@ export default function Dashboard() {
                           setSearchQuery('');
                           setSearchResults([]);
                         }}
-                        className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-stone-100 text-xs text-stone-800 transition flex items-center justify-between"
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-amber-50 text-xs text-stone-800 transition flex items-center justify-between font-medium"
                       >
-                        <span className="font-medium truncate">{city.displayName}</span>
-                        <span className="text-[10px] text-stone-400 shrink-0 ml-2">
+                        <span className="font-semibold truncate">{city.displayName}</span>
+                        <span className="text-[10px] text-stone-500 shrink-0 ml-2">
                           {city.latitude.toFixed(1)}°, {city.longitude.toFixed(1)}°
                         </span>
                       </button>
@@ -735,8 +767,8 @@ export default function Dashboard() {
 
                 {/* Quick select presets */}
                 <div className="pt-2 border-t border-stone-100 mt-2">
-                  <div className="text-[10px] uppercase font-semibold text-stone-400 tracking-wider mb-1">
-                    Quick Select
+                  <div className="text-[10px] uppercase font-bold text-stone-500 tracking-wider mb-1.5">
+                    Popular Hubs
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {['New York', 'London', 'Tokyo', 'Mumbai', 'Paris', 'San Francisco'].map((city) => (
@@ -747,7 +779,7 @@ export default function Dashboard() {
                           setShowSearch(false);
                           setSearchQuery('');
                         }}
-                        className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-md text-[11px] font-medium transition"
+                        className="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-lg text-[11px] font-semibold transition border border-stone-200/70"
                       >
                         {city}
                       </button>
@@ -758,77 +790,79 @@ export default function Dashboard() {
             )}
 
             {/* Weather Temperature & Condition Hero */}
-            <div className="mt-4 flex items-center justify-between">
+            <div className="mt-5 flex items-center justify-between">
               <div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl sm:text-5xl font-extrabold tracking-tight text-stone-900">
+                <div className="flex items-baseline gap-2.5">
+                  <span className="text-4xl sm:text-5xl font-black tracking-tight text-stone-950 font-serif drop-shadow-2xs">
                     {tempUnit === 'C'
                       ? `${weather?.current?.temperature_c ?? 22}°C`
                       : `${weather?.current?.temperature_f ?? 72}°F`}
                   </span>
-                  <div className="inline-flex rounded-lg border border-stone-200 bg-stone-100 p-0.5 text-xs font-semibold">
+                  <div className={`inline-flex rounded-lg border p-0.5 text-xs font-bold shadow-2xs ${weatherTheme.unitToggleBg}`}>
                     <button
                       onClick={() => setTempUnit('C')}
-                      className={`px-1.5 py-0.5 rounded-md transition ${
-                        tempUnit === 'C' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500'
+                      className={`px-2 py-0.5 rounded-md transition ${
+                        tempUnit === 'C' ? 'bg-white text-stone-950 shadow-xs' : 'text-stone-700 hover:text-stone-950'
                       }`}
                     >
                       °C
                     </button>
                     <button
                       onClick={() => setTempUnit('F')}
-                      className={`px-1.5 py-0.5 rounded-md transition ${
-                        tempUnit === 'F' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500'
+                      className={`px-2 py-0.5 rounded-md transition ${
+                        tempUnit === 'F' ? 'bg-white text-stone-950 shadow-xs' : 'text-stone-700 hover:text-stone-950'
                       }`}
                     >
                       °F
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 mt-1.5 text-stone-600 font-medium text-sm">
+                <div className="flex items-center gap-2 mt-2 text-stone-800 font-semibold text-sm">
                   <span>{weather?.current?.condition || 'Mild & Clear'}</span>
-                  <span className="text-stone-300">·</span>
-                  <span className="text-xs text-stone-500">
+                  <span className="text-stone-400">·</span>
+                  <span className="text-xs text-stone-700 font-medium">
                     Feels like{' '}
-                    {tempUnit === 'C'
-                      ? `${weather?.current?.apparent_temp_c ?? 22}°C`
-                      : `${weather?.current?.apparent_temp_f ?? 72}°F`}
+                    <strong className="text-stone-950">
+                      {tempUnit === 'C'
+                        ? `${weather?.current?.apparent_temp_c ?? 22}°C`
+                        : `${weather?.current?.apparent_temp_f ?? 72}°F`}
+                    </strong>
                   </span>
                 </div>
               </div>
-              <div className="p-3 bg-stone-100/80 rounded-2xl border border-stone-200/50 shadow-inner">
+              <div className={`p-3.5 rounded-2xl ${weatherTheme.iconBoxBg}`}>
                 {renderWeatherIcon(weather?.current?.icon, 'w-10 h-10')}
               </div>
             </div>
 
             {/* Microclimate Stats Grid */}
-            <div className="mt-5 grid grid-cols-3 gap-2 text-xs">
-              <div className="bg-white/80 border border-stone-100 rounded-xl p-2.5 flex flex-col items-center text-center">
-                <div className="flex items-center text-stone-400 gap-1 mb-0.5">
-                  <CloudRain className="w-3.5 h-3.5 text-sky-500" />
-                  <span className="text-[11px]">Rain</span>
+            <div className="mt-5 grid grid-cols-3 gap-2.5 text-xs">
+              <div className={`rounded-2xl p-2.5 flex flex-col items-center text-center shadow-2xs border ${weatherTheme.statBoxBg}`}>
+                <div className="flex items-center text-stone-600 gap-1 mb-0.5 font-medium">
+                  <CloudRain className="w-3.5 h-3.5 text-sky-600" />
+                  <span className="text-[11px]">Rain Chance</span>
                 </div>
-                <span className="font-semibold text-stone-800 text-sm">
+                <span className="font-bold text-stone-950 text-sm">
                   {weather?.current?.rain_chance_pct ?? 15}%
                 </span>
               </div>
 
-              <div className="bg-white/80 border border-stone-100 rounded-xl p-2.5 flex flex-col items-center text-center">
-                <div className="flex items-center text-stone-400 gap-1 mb-0.5">
-                  <Thermometer className="w-3.5 h-3.5 text-amber-500" />
+              <div className={`rounded-2xl p-2.5 flex flex-col items-center text-center shadow-2xs border ${weatherTheme.statBoxBg}`}>
+                <div className="flex items-center text-stone-600 gap-1 mb-0.5 font-medium">
+                  <Thermometer className="w-3.5 h-3.5 text-amber-600" />
                   <span className="text-[11px]">Humidity</span>
                 </div>
-                <span className="font-semibold text-stone-800 text-sm">
+                <span className="font-bold text-stone-950 text-sm">
                   {weather?.current?.humidity_pct ?? 60}%
                 </span>
               </div>
 
-              <div className="bg-white/80 border border-stone-100 rounded-xl p-2.5 flex flex-col items-center text-center">
-                <div className="flex items-center text-stone-400 gap-1 mb-0.5">
-                  <Wind className="w-3.5 h-3.5 text-teal-500" />
-                  <span className="text-[11px]">Wind</span>
+              <div className={`rounded-2xl p-2.5 flex flex-col items-center text-center shadow-2xs border ${weatherTheme.statBoxBg}`}>
+                <div className="flex items-center text-stone-600 gap-1 mb-0.5 font-medium">
+                  <Wind className="w-3.5 h-3.5 text-teal-600" />
+                  <span className="text-[11px]">Wind Velocity</span>
                 </div>
-                <span className="font-semibold text-stone-800 text-sm">
+                <span className="font-bold text-stone-950 text-sm">
                   {weather?.current?.wind_speed_kmh ?? 10} km/h
                 </span>
               </div>
@@ -836,14 +870,16 @@ export default function Dashboard() {
           </div>
 
           {/* Style Advice Footer Note */}
-          <div className="mt-5 pt-4 border-t border-stone-100">
-            <div className="flex items-start gap-2">
-              <Sparkles className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+          <div className={`mt-5 pt-4 border-t ${weatherTheme.headerBorder} relative z-1`}>
+            <div className={`p-3 rounded-2xl border flex items-start gap-2.5 ${weatherTheme.adviceBoxBg}`}>
+              <div className="w-6 h-6 rounded-lg bg-white/80 shadow-2xs flex items-center justify-center shrink-0 mt-0.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+              </div>
               <div>
-                <p className="text-xs font-semibold text-stone-900">
+                <p className="text-xs font-bold text-stone-950">
                   {weather?.styleAdvice?.headline || 'Temperate Everyday Dressing'}
                 </p>
-                <p className="text-[11px] text-stone-500 mt-0.5 leading-relaxed">
+                <p className="text-[11px] text-stone-700 mt-0.5 leading-relaxed font-medium">
                   {weather?.styleAdvice?.layeringAdvice || 'Optimal for breathable single-layer styles and relaxed fits.'}
                 </p>
               </div>
@@ -854,17 +890,17 @@ export default function Dashboard() {
         {/* AI Weather-Adapted Outfit Recommendation (7 cols on lg) */}
         <div
           id="weather-outfit-recommendation-card"
-          className="lg:col-span-7 bg-white rounded-3xl p-6 border border-stone-200/80 shadow-sm flex flex-col justify-between"
+          className="lg:col-span-7 bg-gradient-to-br from-white via-[#fcfbf9] to-[#f9f5ee] rounded-3xl p-6 border border-[#e8dfd3] shadow-sm flex flex-col justify-between"
         >
           <div>
             {/* Header & Controls */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-stone-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#eee7dd]">
               <div>
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-900 border border-amber-200/60 rounded-full text-xs font-semibold mb-1">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100/90 text-amber-950 border border-amber-300/80 rounded-full text-xs font-bold mb-1 shadow-2xs">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-700" />
                   Daily Weather-Adaptive Stylist
                 </div>
-                <h3 className="font-bold text-lg text-stone-900">
+                <h3 className="font-bold text-lg sm:text-xl text-stone-950 font-serif">
                   {suggestedOutfit?.group_theme_title || "Today's Weather-Matched Fit"}
                 </h3>
               </div>
@@ -873,10 +909,10 @@ export default function Dashboard() {
                   id="regenerate-outfit-btn"
                   onClick={() => generateWeatherOutfit()}
                   disabled={generatingSuggestion || garments.length === 0}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-medium rounded-xl transition disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#f5efe6] hover:bg-[#eae0d2] text-stone-900 border border-[#e5ded3] text-xs font-semibold rounded-xl transition disabled:opacity-50 cursor-pointer shadow-2xs"
                   title="Generate another weather combination"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${generatingSuggestion ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${generatingSuggestion ? 'animate-spin text-amber-700' : 'text-stone-600'}`} />
                   <span>{generatingSuggestion ? 'Styling...' : 'Try Another Combo'}</span>
                 </button>
               </div>
@@ -885,7 +921,7 @@ export default function Dashboard() {
             {/* Quick Vibe Chips */}
             {garments.length > 0 && (
               <div className="pt-3 pb-1 flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] font-semibold text-stone-400 mr-1 uppercase tracking-wider">Vibe:</span>
+                <span className="text-[11px] font-bold text-stone-500 mr-1 uppercase tracking-wider">Aesthetic:</span>
                 {[
                   { id: 'casual', label: 'Casual Daily' },
                   { id: 'smart_casual', label: 'Smart Casual' },
@@ -896,10 +932,10 @@ export default function Dashboard() {
                     key={vibe.id}
                     onClick={() => generateWeatherOutfit(vibe.id as any)}
                     disabled={generatingSuggestion}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    className={`px-3 py-1 rounded-xl text-xs font-semibold transition cursor-pointer border ${
                       selectedVibe === vibe.id
-                        ? 'bg-stone-900 text-white shadow-xs'
-                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200 hover:text-stone-900'
+                        ? 'bg-stone-950 text-amber-100 border-stone-950 shadow-xs'
+                        : 'bg-[#f7f2ea] text-stone-700 border-[#e8ded2] hover:bg-[#eae1d3] hover:text-stone-950'
                     }`}
                   >
                     {vibe.label}
@@ -911,40 +947,40 @@ export default function Dashboard() {
             {/* Garment Grid / Content */}
             {generatingSuggestion ? (
               <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
-                <Loader2 className="w-8 h-8 animate-spin text-stone-600" />
-                <p className="text-sm font-medium text-stone-700">
+                <Loader2 className="w-8 h-8 animate-spin text-amber-700" />
+                <p className="text-sm font-bold text-stone-900">
                   Calibrating climate data & selecting matching pieces...
                 </p>
-                <p className="text-xs text-stone-400">
+                <p className="text-xs text-stone-500 font-medium">
                   Balancing fabric breathability, rain protection, and color harmony
                 </p>
               </div>
             ) : garments.length === 0 ? (
               <div className="py-10 text-center space-y-3">
-                <Shirt className="w-10 h-10 text-stone-300 mx-auto" />
-                <h4 className="font-semibold text-stone-800 text-sm">Your wardrobe is empty</h4>
-                <p className="text-xs text-stone-500 max-w-sm mx-auto">
+                <Shirt className="w-10 h-10 text-amber-300 mx-auto" />
+                <h4 className="font-bold text-stone-900 text-sm">Your wardrobe is empty</h4>
+                <p className="text-xs text-stone-600 max-w-sm mx-auto font-medium">
                   Add a few pieces to your closet to unlock instant AI weather styling recommendations.
                 </p>
                 <Link
                   to="/closet"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-stone-900 text-white rounded-xl text-xs font-medium hover:bg-stone-800 transition"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-stone-900 text-amber-100 rounded-xl text-xs font-bold hover:bg-stone-800 transition shadow-xs"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5 text-amber-400" />
                   Add Garments to Closet
                 </Link>
               </div>
             ) : suggestedItems.length > 0 ? (
-              <div className="mt-3 space-y-3.5">
+              <div className="mt-3.5 space-y-3.5">
                 {/* Color Harmony Palette Bar (if present) */}
                 {suggestedOutfit?.group_color_palette && Array.isArray(suggestedOutfit.group_color_palette) && (
-                  <div className="flex items-center justify-between px-3 py-2 bg-stone-50 rounded-xl border border-stone-100">
-                    <span className="text-[11px] font-medium text-stone-500">Curated Color Harmony:</span>
-                    <div className="flex items-center gap-1.5">
+                  <div className="flex items-center justify-between px-3.5 py-2 bg-[#f6efe4] rounded-2xl border border-[#e8dfd3]">
+                    <span className="text-[11px] font-bold text-stone-700">Curated Color Harmony:</span>
+                    <div className="flex items-center gap-2">
                       {suggestedOutfit.group_color_palette.map((colorHex: string, cIdx: number) => (
                         <div
                           key={cIdx}
-                          className="w-4 h-4 rounded-full border border-stone-300 shadow-2xs"
+                          className="w-4 h-4 rounded-full border border-stone-300 shadow-xs"
                           style={{ backgroundColor: colorHex }}
                           title={colorHex}
                         />
@@ -958,9 +994,9 @@ export default function Dashboard() {
                   {suggestedItems.map((garment, idx) => (
                     <div
                       key={garment?.id || idx}
-                      className="bg-stone-50/80 border border-stone-200/60 rounded-2xl p-2.5 flex flex-col items-center text-center group hover:border-stone-300 transition"
+                      className="bg-[#faf6f0] border border-[#ebe4da] rounded-2xl p-2.5 flex flex-col items-center text-center group hover:border-amber-300 hover:shadow-xs transition"
                     >
-                      <div className="w-full aspect-square bg-white rounded-xl mb-2 overflow-hidden flex items-center justify-center p-1.5 border border-stone-100">
+                      <div className="w-full aspect-square bg-white rounded-xl mb-2 overflow-hidden flex items-center justify-center p-1.5 border border-[#eee7dd]">
                         {garment?.imageUrl ? (
                           <img
                             src={garment.imageUrl}
@@ -972,18 +1008,18 @@ export default function Dashboard() {
                           <Shirt className="w-6 h-6 text-stone-300" />
                         )}
                       </div>
-                      <span className="text-[10px] uppercase font-semibold text-stone-400 tracking-wider">
+                      <span className="text-[10px] uppercase font-bold text-amber-900/70 tracking-wider">
                         {garment?.category}
                       </span>
-                      <span className="text-xs font-semibold text-stone-900 truncate w-full capitalize mt-0.5">
+                      <span className="text-xs font-bold text-stone-900 truncate w-full capitalize mt-0.5">
                         {garment?.subCategory || garment?.name}
                       </span>
-                      <div className="flex items-center gap-1 mt-1">
+                      <div className="flex items-center gap-1.5 mt-1">
                         <span
                           className="w-2.5 h-2.5 rounded-full border border-stone-300 shrink-0"
                           style={{ backgroundColor: garment?.primaryColorHex || '#888888' }}
                         />
-                        <span className="text-[10px] text-stone-500 truncate max-w-[75px]">
+                        <span className="text-[10px] text-stone-600 truncate max-w-[75px] font-medium">
                           {garment?.primaryColorName}
                         </span>
                       </div>
@@ -992,12 +1028,12 @@ export default function Dashboard() {
                 </div>
 
                 {/* Weather & Style Rationale */}
-                <div className="p-3.5 bg-amber-50/50 rounded-2xl border border-amber-100/70 text-xs text-stone-700 leading-relaxed">
-                  <div className="flex items-center gap-1.5 font-semibold text-stone-900 mb-0.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                <div className="p-3.5 bg-[#fbf6ec] rounded-2xl border border-[#ede1cc] text-xs text-stone-800 leading-relaxed">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-950 mb-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-700" />
                     <span>Weather Adaptation Rationale:</span>
                   </div>
-                  <p className="text-stone-600">
+                  <p className="text-stone-700 font-medium">
                     {suggestedOutfit?.weather_rationale ||
                       primaryAttendee?.individual_styling_note ||
                       suggestedOutfit?.coordination_rationale ||
@@ -1007,10 +1043,10 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="py-8 text-center space-y-2">
-                <p className="text-sm text-stone-500">Ready to compute your weather outfit.</p>
+                <p className="text-sm text-stone-600 font-medium">Ready to compute your weather outfit.</p>
                 <button
                   onClick={() => generateWeatherOutfit()}
-                  className="px-4 py-2 bg-stone-900 text-white rounded-xl text-xs font-medium hover:bg-stone-800 transition cursor-pointer"
+                  className="px-4 py-2 bg-stone-900 text-amber-100 rounded-xl text-xs font-bold hover:bg-stone-800 transition cursor-pointer shadow-xs"
                 >
                   Generate Outfit Now
                 </button>
@@ -1020,12 +1056,12 @@ export default function Dashboard() {
 
           {/* Action Buttons */}
           {suggestedItems.length > 0 && !generatingSuggestion && (
-            <div className="mt-4 pt-3.5 border-t border-stone-100 flex flex-wrap items-center justify-between gap-3">
+            <div className="mt-4 pt-3.5 border-t border-[#eee7dd] flex flex-wrap items-center justify-between gap-3">
               <button
                 id="log-suggested-worn-btn"
                 onClick={handleLogSuggestedOutfit}
                 disabled={loggingSuggestedOutfit || suggestedOutfitLogged}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded-xl transition disabled:opacity-60 shadow-sm cursor-pointer"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-stone-950 hover:bg-stone-800 text-amber-100 text-xs font-bold rounded-xl transition disabled:opacity-60 shadow-xs cursor-pointer"
               >
                 {suggestedOutfitLogged ? (
                   <>
@@ -1034,12 +1070,12 @@ export default function Dashboard() {
                   </>
                 ) : loggingSuggestedOutfit ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-300" />
                     Logging...
                   </>
                 ) : (
                   <>
-                    <Check className="w-4 h-4 text-emerald-300" />
+                    <Check className="w-4 h-4 text-amber-300" />
                     Wear & Log Outfit Today
                   </>
                 )}
@@ -1047,7 +1083,7 @@ export default function Dashboard() {
 
               <Link
                 to="/planner"
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 hover:text-stone-900 transition"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-700 hover:text-amber-900 transition"
               >
                 <span>Specific Event or Group? Open Planner</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -1055,99 +1091,6 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-      </section>
-
-      {/* Outfit History Section */}
-      <section id="outfit-history-section">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight text-stone-900">Outfit History</h2>
-            <p className="text-xs text-stone-500 mt-0.5">Track what you and your family have worn recently.</p>
-          </div>
-          <div className="flex items-center text-stone-500 text-sm font-medium">
-            <History className="w-4 h-4 mr-1.5 text-stone-400" />
-            <span>Activity Log</span>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center items-center h-32">
-            <Loader2 className="w-8 h-8 animate-spin text-stone-400" />
-          </div>
-        ) : Object.keys(history).length === 0 ? (
-          <div className="bg-white border border-stone-200/80 rounded-3xl p-12 text-center shadow-sm">
-            <History className="w-10 h-10 text-stone-300 mx-auto mb-3" />
-            <h3 className="text-base font-semibold text-stone-900 mb-1">No outfit history logged yet</h3>
-            <p className="text-xs text-stone-500 max-w-sm mx-auto">
-              Whenever you log an outfit or accept today's weather recommendation, it will be saved here.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {Object.entries(history).map(([date, outfitGarments]: [string, any[]]) => (
-              <div key={date} className="bg-white rounded-3xl border border-stone-200/80 shadow-sm p-6">
-                <div className="flex items-center justify-between mb-4 border-b border-stone-100 pb-3">
-                  <div>
-                    <h3 className="font-semibold text-stone-900 text-sm sm:text-base">
-                      {new Date(date).toLocaleDateString(undefined, {
-                        weekday: 'long',
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                      })}
-                    </h3>
-                    <p className="text-xs text-stone-500">{outfitGarments.length} pieces worn</p>
-                  </div>
-                  <button
-                    onClick={() => handleReLog(date)}
-                    disabled={logging !== null}
-                    className="flex items-center px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl transition disabled:opacity-50"
-                  >
-                    {logging === date ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
-                        Logged!
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-3.5 h-3.5 mr-1.5" />
-                        Wear Again Today
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="flex gap-3 overflow-x-auto pb-2">
-                  {outfitGarments.map((garment) => (
-                    <div
-                      key={garment.id}
-                      className="shrink-0 w-28 bg-stone-50/70 border border-stone-200/60 rounded-2xl overflow-hidden p-2 text-center"
-                    >
-                      <div className="aspect-square bg-white rounded-xl flex items-center justify-center p-1 mb-1.5 border border-stone-100">
-                        {garment.imageUrl ? (
-                          <img
-                            src={garment.imageUrl}
-                            alt={garment.subCategory}
-                            className="w-full h-full object-contain mix-blend-multiply"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <span className="text-stone-300 text-[10px]">No image</span>
-                        )}
-                      </div>
-                      <span className="font-semibold text-stone-900 text-xs capitalize block truncate">
-                        {garment.subCategory || garment.name}
-                      </span>
-                      <span className="text-[10px] text-stone-500 capitalize block truncate">
-                        {garment.primaryColorName}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </section>
     </div>
   );
