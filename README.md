@@ -1,46 +1,57 @@
 # Vastrakalp — AI-Powered Wardrobe Management & Multi-Person Styling Platform
 
-Vastrakalp is a modern full-stack artificial intelligence application engineered for intelligent wardrobe digitization, automated computer-vision garment taxonomy extraction, climate-adaptive daily styling, and family color-coordinated ensemble planning (**HueSync™**).
+Vastrakalp is an artificial intelligence application engineered for wardrobe digitization, automated computer-vision garment taxonomy extraction, climate-adaptive daily styling, and family color-coordinated ensemble planning (**HueSync™**).
+
+The system features a **100% Python FastAPI backend** coupled with a modern **React 19 Vite SPA frontend** and Google Cloud Firestore.
 
 ---
 
 ## 1. Architecture Overview
 
-Vastrakalp is built with a decoupled, dual-backend architecture designed for production resilience and cloud flexibility:
-
 ```
 +-----------------------------------------------------------------------------------+
 |                                 CLIENT BROWSER                                    |
 |                                                                                   |
-|  [ React 19 UI ] <---> [ useAuth / State ] <---> [ HTML5 Canvas Pre-Processing ]  |
+|  [ React 19 SPA ] <---> [ useAuth / State ] <---> [ HTML5 Canvas Pre-Processing ]  |
 +------------------------------------+----------------------------------------------+
                                      |
                           HTTPS / REST API (JWT Bearer)
                                      |
-         +---------------------------+---------------------------+
-         |                                                       |
-+--------v------------------------------+      +-----------------v------------------------------+
-|   PYTHON FASTAPI BACKEND (Cloud Run)  |      |   VERCEL SERVERLESS / NODE BACKEND (Vercel)   |
-|   Directory: /backend                 |      |   Directory: /api & /server                    |
-|                                       |      |                                                |
-|   - FastAPI 0.115 + Pydantic v2       |      |   - Express 4 + TypeScript                     |
-|   - Pillow Image Optimization         |      |   - Sharp Image Optimization                   |
-|   - Google GenAI Python SDK           |      |   - Google GenAI Node SDK                      |
-|   - Deterministic CV & HueSync        |      |   - Deterministic CV & HueSync                 |
-|   - Cloud Run Multi-Stage Dockerfile  |      |   - Vercel Serverless Function Engine          |
-+-------------------+-------------------+      +-----------------+------------------------------+
-                    |                                            |
-                    +--------------------+-----------------------+
-                                         |
-                               +---------v---------+
-                               |  CLOUD FIRESTORE  |
-                               |  (NoSQL Database) |
-                               +-------------------+
+                                     v
++-----------------------------------------------------------------------------------+
+|                           PYTHON FASTAPI BACKEND                                  |
+|                           Directory: /backend                                     |
+|                                                                                   |
+|   - FastAPI 0.115 + Pydantic v2 Type Schemas                                      |
+|   - Uvicorn ASGI Engine (with Vercel Python Serverless support via api/index.py)  |
+|   - Google GenAI SDK (Multimodal Vision & Prompt Orchestration)                   |
+|   - Pillow (PIL) Computer Vision & Dominant Color Extraction                      |
+|   - Algorithmic Fallback Engine (HTTP 429 & Offline Resilient)                    |
+|   - Open-Meteo REST API Weather & Climate Integration                             |
+|   - Firebase Admin SDK (Authentication & Firestore Database)                      |
+|   - Containerized via Dockerfile.backend & Cloud Run Ready                        |
++------------------------------------+----------------------------------------------+
+                                     |
+                           +---------v---------+
+                           |  CLOUD FIRESTORE  |
+                           |  (NoSQL Database) |
+                           +-------------------+
 ```
 
 ---
 
 ## 2. Technology Stack
+
+### Backend Layer (100% Pure Python)
+- **Language**: Python 3.10+ / 3.11
+- **Framework**: FastAPI with Pydantic v2 schemas (`/backend`)
+- **Server**: Uvicorn ASGI Server
+- **Computer Vision & Image Optimization**: Pillow (PIL) for token-optimized image preprocessing and dominant color hex analysis
+- **AI Orchestration**: Google GenAI SDK (`google-genai` / `google-generativeai`) with candidate model fallback (`gemini-3.8-flash`, `gemini-3.1-flash-lite`, `gemini-flash-latest`)
+- **Resilience Engine**: Local deterministic fallback engine for both Garment Vision Analysis and Family Outfit Coordination (zero external dependency mode on rate limit / 429)
+- **Meteorology**: Open-Meteo REST API integration for real-time temperature, heat index, and humidity
+- **Authentication & DB**: Firebase Admin SDK (`firebase-admin`) with Cloud Firestore integration
+- **Containerization**: Multi-stage `Dockerfile.backend` for Google Cloud Run / Docker Compose
 
 ### Frontend Layer
 - **Framework**: React 19 with TypeScript 5.8
@@ -48,19 +59,6 @@ Vastrakalp is built with a decoupled, dual-backend architecture designed for pro
 - **Styling**: Tailwind CSS v4 with adaptive responsive layout
 - **State & Routing**: React Router v7, Custom React Hooks (`useAuth`, Real-time Firestore Listeners)
 - **Icons & Animation**: Lucide React, Motion (`motion/react`)
-
-### Backend Layer (Python FastAPI Core)
-- **Framework**: FastAPI with Pydantic v2 data validation schemas (`/backend`)
-- **Runtime**: Python 3.10+ with Uvicorn ASGI server
-- **Computer Vision & Image Optimization**: Pillow (PIL) for token-optimized 768px JPEG scaling and dominant color extraction
-- **AI Orchestration**: Google GenAI SDK (`google-genai` / `google-generativeai`) with candidate model fallback (`gemini-3.8-flash`, `gemini-3.1-flash-lite`, `gemini-flash-latest`)
-- **Resilience Engine**: Deterministic fallback engines for **both Garment Image Analysis AND Family Outfit Coordination**
-- **Meteorological Service**: Open-Meteo REST API integration for real-time temperature, apparent heat index, humidity, and precipitation probability
-- **Containerization**: Multi-stage Dockerfile (`Dockerfile.backend`) optimized for Google Cloud Run / Docker Compose
-
-### Alternate Serverless Bridge (Vercel / Node.js)
-- **Framework**: Express 4 / Vercel Serverless Function (`/api/index.ts`, `/server`)
-- Provides zero-configuration hobby deployment on Vercel while preserving identical API contracts with the Python backend.
 
 ### Persistence & Security
 - **Database**: Google Cloud Firestore (NoSQL Document Store)
@@ -102,7 +100,7 @@ export FIREBASE_DATABASE_ID="ai-studio-77024999-4ce1-49cc-90b6-b6cec4d5a94a"
 # 5. Run FastAPI development server
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-API Documentation will be available at:
+Interactive API Documentation:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 - Health Check: `http://localhost:8000/api/health`
@@ -128,15 +126,15 @@ docker-compose up --build
 
 ---
 
-## 5. Deploying Frontend to Vercel
+## 5. Deploying to Vercel
 
+Vastrakalp supports Vercel deployment with native Python ASGI runtime:
 1. Push repository to **GitHub**.
 2. Import project into [Vercel](https://vercel.com).
 3. Set environment variables:
    - `GEMINI_API_KEY`: Your Google Gemini API Key.
-   - `NODE_ENV`: `production`
-   - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_DATABASE_ID`: (Copied from Firebase Console).
-4. Click **Deploy**. Vercel will host the frontend and serverless endpoints.
+   - `VITE_API_URL`: (Optional, points to Cloud Run if hosted externally; otherwise defaults to `/api` which runs `api/index.py`).
+4. Click **Deploy**. Vercel will build the frontend with `vite build` and route `/api/*` to `api/index.py` (FastAPI).
 
 ---
 
@@ -151,12 +149,14 @@ docker-compose up --build
 │   ├── models/               # Pydantic v2 request/response schemas
 │   ├── routers/              # Modular API endpoints (/garments, /outfits, /weather, /auth)
 │   └── services/             # Gemini API orchestrator, fallback CV, & Open-Meteo client
-├── src/                      # React 19 Frontend Application
+├── src/                      # React 19 Frontend Application (Vite SPA)
 │   ├── components/           # Reusable UI components & layouts
 │   ├── pages/                # Closet, Dashboard, AddGarment, Planner, Login
 │   ├── hooks/                # useAuth, useVoiceSpeech
 │   └── lib/                  # Firebase Client SDK & API connectors
-├── server/                   # Node.js / Express Serverless Bridge
+├── api/                      # Serverless entry point
+│   └── index.py              # Python ASGI / FastAPI export for serverless runtimes
+├── requirements.txt          # Root Python dependencies for scanners & deployers
 ├── firestore.rules           # Granular Firestore Role-Based Access Control
 ├── Dockerfile.backend        # Multi-stage Dockerfile for Cloud Run
 └── docker-compose.yml        # Multi-container orchestration

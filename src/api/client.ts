@@ -38,7 +38,8 @@ export const apiClient = async (
   options: RequestInit = {},
   warmupRetries = 4
 ): Promise<any> => {
-  const token = await getAuthToken();
+  const isPublic = endpoint.startsWith('/weather');
+  const token = isPublic ? null : await getAuthToken();
   const headers = new Headers(options.headers || {});
   
   if (token) {
@@ -176,14 +177,106 @@ export const api = {
     apiClient('/outfits/suggest', { method: 'POST', body: JSON.stringify({ prompt, weather, garments }) }),
   suggestFamilyOutfit: (event_prompt: string, weather: any, family_closets: any[]) =>
     apiClient('/outfits/suggest', { method: 'POST', body: JSON.stringify({ event_prompt, weather, family_closets }) }),
-  getWeather: (params?: { lat?: number; lon?: number; city?: string }) => {
-    const query = new URLSearchParams();
-    if (params?.lat !== undefined) query.set('lat', params.lat.toString());
-    if (params?.lon !== undefined) query.set('lon', params.lon.toString());
-    if (params?.city) query.set('city', params.city);
-    const queryString = query.toString();
-    return apiClient(`/weather${queryString ? `?${queryString}` : ''}`, { method: 'GET' });
+  getWeather: async (params?: { lat?: number; lon?: number; city?: string }) => {
+    try {
+      const query = new URLSearchParams();
+      if (params?.lat !== undefined) query.set('lat', params.lat.toString());
+      if (params?.lon !== undefined) query.set('lon', params.lon.toString());
+      if (params?.city) query.set('city', params.city);
+      const queryString = query.toString();
+      return await apiClient(`/weather${queryString ? `?${queryString}` : ''}`, { method: 'GET' });
+    } catch (err) {
+      console.warn('[API Weather Fallback] Backend weather call failed, using direct Open-Meteo client fallback:', err);
+      let lat = params?.lat;
+      let lon = params?.lon;
+      let cityName = params?.city || 'New Delhi, India';
+
+      if (params?.city && (lat === undefined || lon === undefined)) {
+        try {
+          const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(params.city)}&count=1&language=en&format=json`);
+          const geoData = await geoRes.json();
+          if (geoData?.results?.[0]) {
+            lat = geoData.results[0].latitude;
+            lon = geoData.results[0].longitude;
+            cityName = geoData.results[0].name;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (lat === undefined || lon === undefined) {
+        lat = 28.6139;
+        lon = 77.2090;
+        cityName = 'New Delhi, India';
+      }
+
+      const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto`);
+      const wData = await weatherRes.json();
+
+      const current = wData.current || {};
+      const temp = current.temperature_2m || 25.0;
+      const apparent = current.apparent_temperature || temp + 2.0;
+      const humidity = current.relative_humidity_2m || 60;
+      const precip = current.precipitation || 0;
+      const wCode = current.weather_code || 0;
+
+      return {
+        location: {
+          city: cityName,
+          latitude: lat,
+          longitude: lon,
+          timezone: wData.timezone || 'UTC'
+        },
+        current: {
+          temperature: Math.round(temp * 10) / 10,
+          apparentTemperature: Math.round(apparent * 10) / 10,
+          humidity: humidity,
+          precipitation: precip,
+          precipitationProbability: precip > 0 ? 50 : 10,
+          windSpeed: current.wind_speed_10m || 0,
+          weatherCode: wCode,
+          condition: wCode === 0 ? 'Clear Sky' : wCode <= 3 ? 'Partly Cloudy' : 'Mild & Pleasant',
+          icon: wCode === 0 ? 'Sun' : 'CloudSun',
+          category: wCode === 0 ? 'sunny' : 'cloudy'
+        },
+        daily: {
+          time: wData.daily?.time || [],
+          weatherCode: wData.daily?.weather_code || [],
+          temperatureMax: wData.daily?.temperature_2m_max || [],
+          temperatureMin: wData.daily?.temperature_2m_min || [],
+          precipitationProbabilityMax: wData.daily?.precipitation_probability_max || []
+        },
+        advice: {
+          headline: temp >= 29 ? 'Warm & sunlit conditions. Prioritize ultra-breathable, airy garments.' : 'Pleasant & temperate weather conditions.',
+          recommendedThermalWeight: temp >= 29 ? 1 : temp >= 22 ? 2 : 3,
+          recommendedCategories: ['top', 'bottom', 'footwear'],
+          fabricAdvice: 'Linen, airy cotton, or fine weaves.',
+          colorPaletteAdvice: 'Light reflectives or rich earth tones.',
+          layeringAdvice: 'Single layer or lightweight overshirt.'
+        }
+      };
+    }
   },
-  searchCities: (q: string) =>
-    apiClient(`/weather/search?q=${encodeURIComponent(q)}`, { method: 'GET' }),
+  searchCities: async (q: string) => {
+    try {
+      return await apiClient(`/weather/search?q=${encodeURIComponent(q)}`, { method: 'GET' });
+    } catch {
+      try {
+        const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=en&format=json`);
+        const data = await res.json();
+        return {
+          results: (data.results || []).map((r: any) => ({
+            name: r.name,
+            country: r.country || '',
+            admin1: r.admin1 || '',
+            latitude: r.latitude,
+            longitude: r.longitude
+          }))
+        };
+      } catch {
+        return { results: [] };
+      }
+    }
+  },
 };

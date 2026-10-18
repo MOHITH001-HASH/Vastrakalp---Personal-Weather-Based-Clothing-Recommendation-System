@@ -6,7 +6,7 @@ This document serves as the authoritative architectural specification for Vastra
 
 ## 1. High-Level System Architecture & Deployment Topology
 
-Vastrakalp is designed with a hybrid deployment topology that supports both **Serverless Edge execution (Vercel)** and **Long-Running Monolithic Container execution (Node.js/Express)** without requiring codebase modifications.
+Vastrakalp is designed with a pure Python FastAPI backend architecture supporting both **Containerized execution (Cloud Run / Docker)** and **Serverless ASGI execution (Vercel via api/index.py)** alongside a Vite React 19 frontend.
 
 ```mermaid
 flowchart TB
@@ -18,14 +18,14 @@ flowchart TB
     end
 
     subgraph EdgeGateway ["API Gateway & Routing Layer"]
-        VercelServerless["Vercel Serverless Function (/api/index.ts)"]
-        ExpressLocal["Standalone Express Instance (/server.ts)"]
+        VercelServerless["Vercel Serverless Function (/api/index.py)"]
+        FastAPIApp["FastAPI ASGI Backend (/backend/main.py)"]
         AuthMiddleware["Firebase JWT Bearer Verification Middleware"]
         RateLimiter["Rate Limiting & Safety Exception Trap"]
     end
 
     subgraph ServiceLayer ["Core Business Services"]
-        SharpEngine["Sharp Image Processor (1024x1024px @ 80% JPEG)"]
+        PillowEngine["Pillow Image Processor (JPEG @ 768px RGB)"]
         WeatherAggregator["Open-Meteo Meteorological Aggregator & Cache"]
         HueSyncService["HueSync™ Multi-Person Harmony Engine"]
     end
@@ -47,23 +47,23 @@ flowchart TB
     CanvasProc --> ApiClient
 
     ApiClient --> VercelServerless
-    ApiClient --> ExpressLocal
+    ApiClient --> FastAPIApp
     VercelServerless --> AuthMiddleware
-    ExpressLocal --> AuthMiddleware
+    FastAPIApp --> AuthMiddleware
     AuthMiddleware --> RateLimiter
 
-    RateLimiter --> SharpEngine
+    RateLimiter --> PillowEngine
     RateLimiter --> WeatherAggregator
     RateLimiter --> HueSyncService
 
     HueSyncService --> ModelRouter
-    SharpEngine --> ModelRouter
+    PillowEngine --> ModelRouter
     ModelRouter --> PromptCompiler
     PromptCompiler -.->|429 / 503 / Quota Exceeded| DeterministicFallback
 
     AuthContext --> FirebaseAuth
     VercelServerless --> FirestoreDB
-    ExpressLocal --> FirestoreDB
+    FastAPIApp --> FirestoreDB
 ```
 
 ---
@@ -170,7 +170,7 @@ flowchart TD
 
 ## 5. Resilience & Multi-Tier AI Model Fallback Architecture
 
-To protect against upstream latency, rate-limits (HTTP 429), or capacity spikes (HTTP 503), both the Python FastAPI backend and Node.js bridge implement an automated state machine for **both Image Analysis AND Outfit Coordination**:
+To protect against upstream latency, rate-limits (HTTP 429), or capacity spikes (HTTP 503), the pure Python FastAPI backend implements an automated state machine for **both Image Analysis AND Outfit Coordination**:
 
 ```mermaid
 stateDiagram-v2
@@ -292,6 +292,6 @@ Data isolation is enforced at both the API Gateway and Firestore Security Rules 
 ## 8. Summary of Architectural Guarantees
 
 1. **Zero Client Secret Leakage**: The Gemini API key and backend configuration are never exposed to browser memory or client bundles.
-2. **Dual Serverless & Monolith Compatibility**: Native serverless routing through `vercel.json` alongside long-running standalone Node.js Express server execution.
+2. **Dual Serverless & Monolith Compatibility**: Native serverless routing through `vercel.json` (`api/index.py`) alongside long-running standalone FastAPI Uvicorn container execution (`Dockerfile.backend` / Cloud Run).
 3. **Determinism Under High Load**: The multi-tiered fallback design ensures that regardless of external API quota state, users always receive an aesthetically coordinated, weather-compliant outfit recommendation.
-4. **Low Latency Pre-Processing**: Client-side canvas normalization paired with server-side Sharp pipeline keeps payload sizes strictly below 200 KB per garment analysis.
+4. **Low Latency Pre-Processing**: Client-side canvas normalization paired with server-side Pillow pipeline keeps payload sizes strictly below 200 KB per garment analysis.
