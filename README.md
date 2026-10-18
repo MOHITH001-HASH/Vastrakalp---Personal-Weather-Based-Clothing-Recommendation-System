@@ -1,4 +1,4 @@
-# Vastrakalp (वस्त्रकल्प) — AI-Powered Wardrobe Management & Multi-Person Styling Platform
+# Vastrakalp — AI-Powered Wardrobe Management & Multi-Person Styling Platform
 
 Vastrakalp is a modern full-stack artificial intelligence application engineered for intelligent wardrobe digitization, automated computer-vision garment taxonomy extraction, climate-adaptive daily styling, and family color-coordinated ensemble planning (**HueSync™**).
 
