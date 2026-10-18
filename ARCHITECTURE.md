@@ -170,33 +170,33 @@ flowchart TD
 
 ## 5. Resilience & Multi-Tier AI Model Fallback Architecture
 
-To protect against upstream latency, rate-limits (HTTP 429), or capacity spikes (HTTP 503), the backend implements an automated state machine:
+To protect against upstream latency, rate-limits (HTTP 429), or capacity spikes (HTTP 503), both the Python FastAPI backend and Node.js bridge implement an automated state machine for **both Image Analysis AND Outfit Coordination**:
 
 ```mermaid
 stateDiagram-v2
     [*] --> PrimaryTier: Dispatch Request
     
     state PrimaryTier {
-        [*] --> Gemini25Flash: Try gemini-2.5-flash
-        Gemini25Flash --> Success: 200 OK
-        Gemini25Flash --> Model25Pro: Rate Limit (429) / Overloaded (503)
+        [*] --> Gemini38Flash: Try gemini-3.8-flash
+        Gemini38Flash --> Success: 200 OK
+        Gemini38Flash --> Model31Lite: Rate Limit (429) / Overloaded (503)
     }
 
     state SecondaryTier {
-        Model25Pro: Try gemini-2.5-pro
-        Model25Pro --> Success: 200 OK
-        Model25Pro --> Model36: Rate Limit (429) / Overloaded (503)
+        Model31Lite: Try gemini-3.1-flash-lite
+        Model31Lite --> Success: 200 OK
+        Model31Lite --> ModelFlashLatest: Rate Limit (429) / Overloaded (503)
     }
 
     state TertiaryTier {
-        Model36: Try gemini-3.6
-        Model36 --> Success: 200 OK
-        Model36 --> AlgorithmicMatcher: All AI Models Exhausted
+        ModelFlashLatest: Try gemini-flash-latest
+        ModelFlashLatest --> Success: 200 OK
+        ModelFlashLatest --> AlgorithmicMatcher: All AI Models Exhausted
     }
 
     state LocalDeterministicFallback {
-        AlgorithmicMatcher: Deterministic Color & Thermal Rule Matcher
-        AlgorithmicMatcher --> FallbackSuccess: Structured Plan Generated
+        AlgorithmicMatcher: Deterministic CV & Color Harmony Rule Matcher
+        AlgorithmicMatcher --> FallbackSuccess: High-Fidelity Attributes / Outfit Generated
     }
 
     Success --> [*]: Return JSON

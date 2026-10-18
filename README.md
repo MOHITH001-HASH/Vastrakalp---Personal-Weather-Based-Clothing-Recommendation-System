@@ -1,58 +1,12 @@
 # Vastrakalp (वस्त्रकल्प) — AI-Powered Wardrobe Management & Multi-Person Styling Platform
 
-Vastrakalp is a modern, full-stack artificial intelligence application engineered for intelligent wardrobe digitization, automated computer-vision garment taxonomy extraction, climate-adaptive daily styling, and family color-coordinated ensemble planning (HueSync™).
+Vastrakalp is a modern full-stack artificial intelligence application engineered for intelligent wardrobe digitization, automated computer-vision garment taxonomy extraction, climate-adaptive daily styling, and family color-coordinated ensemble planning (**HueSync™**).
 
 ---
 
-## 1. Executive Overview
+## 1. Architecture Overview
 
-Traditional digital wardrobe tools rely on tedious manual tag entry and static categorization rules that fail when confronted with varying microclimates, thermal requirements, and multi-person event styling. Vastrakalp solves this through a multi-tier AI and distributed systems architecture:
-
-- **Computer Vision Multimodal Analysis**: Automatically extracts category, sub-category, primary/accent colors, hex codes, pattern, formality score (1–5), and thermal weight (1–5) from a single garment photograph using Google Gemini Multimodal Foundation models.
-- **Microclimate & Weather Intelligence**: Ingests real-time atmospheric metrics (temperature, apparent heat index, humidity, precipitation probability, and WMO codes) to ensure outfit recommendations match physical comfort thresholds.
-- **HueSync™ Multi-Person Coordination Engine**: Solves multi-attendee ensemble planning for events (e.g., weddings, family photoshoots, festive gatherings, corporate dinners) using harmonic color theory (monochromatic, analogous, complementary, triadic) while preserving individual wardrobe isolation.
-- **Fail-Safe Adaptive Resilience**: Features a multi-tier AI model fallback pipeline coupled with an offline-capable deterministic rule-based matcher to ensure 100% operational uptime during rate limits or upstream API disruptions.
-
----
-
-## 2. Technology Stack & Topology
-
-### Frontend & Client Layer
-- **Framework**: React 19 with TypeScript 5.8
-- **Build System**: Vite 6 (SPA with optimized client-side routing)
-- **Styling & Design System**: Tailwind CSS v4 with adaptive responsive layout
-- **State & Routing**: React Router v7, Custom React Hooks (`useAuth`, Real-time Firestore Listeners)
-- **Icons & Animation**: Lucide React, Motion (`motion/react`)
-- **Client Processing**: On-device Canvas and Web Workers for low-latency image pre-scaling and compression
-
-### Backend & Serverless API Layer
-- **Runtime**: Node.js 22 LTS with TypeScript (`tsx` / `esbuild`)
-- **Server Framework**: Express 4 with modular sub-routers (`/api/v1/auth`, `/api/v1/garments`, `/api/v1/outfits`, `/api/v1/weather`)
-- **Serverless Architecture**: Native Vercel Serverless Function entry point (`/api/index.ts`) with `vercel.json` URL rewrites
-- **Image Optimization Pipeline**: Sharp (C++ libvips binding) for thumbnail generation, aspect-ratio preservation, and WebP/JPEG compression
-- **Authentication**: Firebase Admin SDK (Bearer JWT token verification)
-- **AI Core**: Google GenAI SDK (`@google/genai`) with Gemini Multimodal models and JSON schema enforcement
-
-### Persistence & Security Layer
-- **Primary Database**: Google Cloud Firestore (NoSQL Document Store)
-- **Auth Provider**: Firebase Authentication (Email/Password, Google OAuth Popup)
-- **Security Rules**: Granular user-level RBAC (`firestore.rules`) enforcing strict data isolation per `auth.uid`
-
----
-
-## 3. Core Modules & Capabilities
-
-| Module | Route / File | Primary Responsibility |
-| :--- | :--- | :--- |
-| **Wardrobe Digitiser** | `/src/pages/AddGarment.tsx` | Photo capture/upload, on-device canvas pre-scaling, Gemini Vision extraction, interactive tag review, and Firestore persistence. |
-| **Digital Closet** | `/src/pages/Closet.tsx` | Multi-criteria filtering (category, formality, color, family member, thermal weight), search, and garment lifecycle management. |
-| **Weather Stylist** | `/src/pages/Dashboard.tsx` | Real-time atmospheric ingestion, daily vibe switching (`Casual Daily`, `Smart Casual`, `Relaxed Lounge`, `Active Outdoor`), and one-click wear logging. |
-| **HueSync™ Event Planner** | `/src/pages/Planner.tsx` | Natural language event query processing, multi-attendee wardrobe allocation, harmonic color palette selection, and conflict-free ensemble generation. |
-| **Outfit Wear Tracker** | `/src/pages/Dashboard.tsx` | Historical timeline of worn items, frequency metrics, and wear logging via `garmentWears` sub-collections. |
-
----
-
-## 4. System Architecture & Request Lifecycle
+Vastrakalp is built with a decoupled, dual-backend architecture designed for production resilience and cloud flexibility:
 
 ```
 +-----------------------------------------------------------------------------------+
@@ -63,90 +17,147 @@ Traditional digital wardrobe tools rely on tedious manual tag entry and static c
                                      |
                           HTTPS / REST API (JWT Bearer)
                                      |
-+------------------------------------v----------------------------------------------+
-|                         APPLICATION API GATEWAY                                   |
-|      (Vercel Serverless `/api/index.ts`  OR  Standalone Node `/server.ts`)        |
-|                                                                                   |
-|  +-----------------------------------------------------------------------------+  |
-|  | Request Router (/api/v1)                                                    |  |
-|  |   ├── /auth      -> User sync & Profile Handlers                            |  |
-|  |   ├── /garments  -> Sharp Image Optimization & Vision Ingestion             |  |
-|  |   ├── /outfits   -> Multi-Agent Prompt Orchestration & HueSync Planner      |  |
-|  |   └── /weather   -> Open-Meteo Meteorological Aggregator                    |  |
-|  +-----------------------------------------------------------------------------+  |
-|                                    |                                              |
-|  +---------------------------------v-------------------------------------------+  |
-|  | AI Orchestration Layer (server/services/gemini.ts)                          |  |
-|  |   ├── Model Tier 1: gemini-2.5-flash (Primary Latency-Optimized)            |  |
-|  |   ├── Model Tier 2: gemini-2.5-pro   (High Reasoning Fallback)              |  |
-|  |   ├── Model Tier 3: gemini-3.6       (Secondary Fallback)                   |  |
-|  |   └── Algorithmic Matcher            (Deterministic Local Rule Engine)      |  |
-|  +-----------------------------------------------------------------------------+  |
-+-------------------+------------------------------------+--------------------------+
-                    |                                    |
-             Google GenAI API                   Firebase Admin / Firestore
-                    |                                    |
-+-------------------v---+                        +-------v--------------------------+
-|  GEMINI VISION & AI   |                        |        CLOUD FIRESTORE           |
-|  - Structured Output  |                        |  - users / garments / outfits    |
-|  - JSON Schema Enforce|                        |  - familyMembers / garmentWears  |
-+-----------------------+                        +----------------------------------+
+         +---------------------------+---------------------------+
+         |                                                       |
++--------v------------------------------+      +-----------------v------------------------------+
+|   PYTHON FASTAPI BACKEND (Cloud Run)  |      |   VERCEL SERVERLESS / NODE BACKEND (Vercel)   |
+|   Directory: /backend                 |      |   Directory: /api & /server                    |
+|                                       |      |                                                |
+|   - FastAPI 0.115 + Pydantic v2       |      |   - Express 4 + TypeScript                     |
+|   - Pillow Image Optimization         |      |   - Sharp Image Optimization                   |
+|   - Google GenAI Python SDK           |      |   - Google GenAI Node SDK                      |
+|   - Deterministic CV & HueSync        |      |   - Deterministic CV & HueSync                 |
+|   - Cloud Run Multi-Stage Dockerfile  |      |   - Vercel Serverless Function Engine          |
++-------------------+-------------------+      +-----------------+------------------------------+
+                    |                                            |
+                    +--------------------+-----------------------+
+                                         |
+                               +---------v---------+
+                               |  CLOUD FIRESTORE  |
+                               |  (NoSQL Database) |
+                               +-------------------+
 ```
 
 ---
 
-## 5. Deployment Options
+## 2. Technology Stack
 
-### Option A: Vercel (Recommended — 100% Free Hobby Tier)
-1. Push this repository to **GitHub**.
-2. Go to [vercel.com](https://vercel.com) and log in with GitHub.
-3. Click **Add New... > Project** and select your `vastrakalp` repository.
-4. Set Environment Variables:
+### Frontend Layer
+- **Framework**: React 19 with TypeScript 5.8
+- **Build System**: Vite 6 (SPA with optimized client-side routing)
+- **Styling**: Tailwind CSS v4 with adaptive responsive layout
+- **State & Routing**: React Router v7, Custom React Hooks (`useAuth`, Real-time Firestore Listeners)
+- **Icons & Animation**: Lucide React, Motion (`motion/react`)
+
+### Backend Layer (Python FastAPI Core)
+- **Framework**: FastAPI with Pydantic v2 data validation schemas (`/backend`)
+- **Runtime**: Python 3.10+ with Uvicorn ASGI server
+- **Computer Vision & Image Optimization**: Pillow (PIL) for token-optimized 768px JPEG scaling and dominant color extraction
+- **AI Orchestration**: Google GenAI SDK (`google-genai` / `google-generativeai`) with candidate model fallback (`gemini-3.8-flash`, `gemini-3.1-flash-lite`, `gemini-flash-latest`)
+- **Resilience Engine**: Deterministic fallback engines for **both Garment Image Analysis AND Family Outfit Coordination**
+- **Meteorological Service**: Open-Meteo REST API integration for real-time temperature, apparent heat index, humidity, and precipitation probability
+- **Containerization**: Multi-stage Dockerfile (`Dockerfile.backend`) optimized for Google Cloud Run / Docker Compose
+
+### Alternate Serverless Bridge (Vercel / Node.js)
+- **Framework**: Express 4 / Vercel Serverless Function (`/api/index.ts`, `/server`)
+- Provides zero-configuration hobby deployment on Vercel while preserving identical API contracts with the Python backend.
+
+### Persistence & Security
+- **Database**: Google Cloud Firestore (NoSQL Document Store)
+- **Authentication**: Firebase Authentication (Google OAuth Popup, Email/Password)
+- **Security Rules**: User-level Role-Based Access Control (`firestore.rules`) strictly isolating wardrobes per authenticated user UID.
+
+---
+
+## 3. High-Resilience Fallback Architecture
+
+To handle upstream Gemini API rate limits (HTTP 429), high-demand spikes (HTTP 503), or network latency, Vastrakalp implements two-tier fallback across all AI operations:
+
+| Operation | Primary AI Engine | Fallback Engine | Fallback Capability |
+| :--- | :--- | :--- | :--- |
+| **Garment Vision Extraction** | Gemini Multimodal Vision (`gemini-3.8-flash` / `gemini-3.1-flash-lite`) | **Local Deterministic Computer Vision Engine** | Analyzes image bytes via Pillow/Canvas to extract dominant RGB/hex, luminance, aspect-ratio heuristics, and standard styling metadata. |
+| **HueSync™ Outfit Coordination** | Gemini Multimodal Prompt Orchestrator | **Algorithmic Color-Harmony Matcher** | Computes mathematical color harmony (analogous, complementary, monochromatic) and aligns thermal insulation to live weather metrics without external API calls. |
+
+---
+
+## 4. Running the Python Backend Locally & with Docker
+
+### Option A: Local Python Environment
+```bash
+# 1. Navigate to backend directory
+cd backend
+
+# 2. Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 3. Install requirements
+pip install -r requirements.txt
+
+# 4. Set environment variables
+export GEMINI_API_KEY="your-gemini-api-key"
+export FIREBASE_PROJECT_ID="gen-lang-client-0005527197"
+export FIREBASE_DATABASE_ID="ai-studio-77024999-4ce1-49cc-90b6-b6cec4d5a94a"
+
+# 5. Run FastAPI development server
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+API Documentation will be available at:
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- Health Check: `http://localhost:8000/api/health`
+
+### Option B: Deploying Python Backend to Google Cloud Run
+```bash
+# 1. Build and push container to Google Artifact Registry
+gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/vastrakalp-backend -f Dockerfile.backend
+
+# 2. Deploy to Cloud Run
+gcloud run deploy vastrakalp-backend \
+  --image gcr.io/YOUR_PROJECT_ID/vastrakalp-backend \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars GEMINI_API_KEY="your-key",FIREBASE_PROJECT_ID="your-project-id"
+```
+
+### Option C: Docker Compose (Full Stack)
+```bash
+docker-compose up --build
+```
+
+---
+
+## 5. Deploying Frontend to Vercel
+
+1. Push repository to **GitHub**.
+2. Import project into [Vercel](https://vercel.com).
+3. Set environment variables:
    - `GEMINI_API_KEY`: Your Google Gemini API Key.
    - `NODE_ENV`: `production`
-5. Click **Deploy**. Vercel will build the frontend via Vite and host the `/api` serverless backend automatically.
-
-### Option B: Local / Self-Hosted Node.js Server
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Start development server (Node.js + Vite middleware on port 3000)
-npm run dev
-
-# 3. Build production bundle
-npm run build
-
-# 4. Start production server
-npm start
-```
+   - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_DATABASE_ID`: (Copied from Firebase Console).
+4. Click **Deploy**. Vercel will host the frontend and serverless endpoints.
 
 ---
 
-## 6. Environment Configuration (`.env`)
+## 6. Directory Structure
 
-```env
-# ==========================================
-# Server-Side AI Secrets
-# ==========================================
-GEMINI_API_KEY=your_gemini_api_key_here
-NODE_ENV=production
-PORT=3000
-
-# ==========================================
-# Client Firebase Config (Optional if firebase-applet-config.json exists)
-# ==========================================
-VITE_FIREBASE_API_KEY=your_firebase_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project_id.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
 ```
-
----
-
-## 7. Zero-Trust Security & Data Isolation
-- **Secret Isolation**: All AI keys (`GEMINI_API_KEY`) and Firebase Admin credentials remain strictly server-side.
-- **Token Verification**: All `/api/v1/*` endpoints require Firebase ID Token verification via the Authorization header (`Bearer <token>`).
-- **Data Boundary**: User records, garments, family profiles, and wear histories are partitioned per user UID and validated through Firestore Security Rules.
+├── backend/                  # Full Python FastAPI Backend
+│   ├── main.py               # FastAPI entry point, CORS, routers & exception handlers
+│   ├── requirements.txt      # Python dependencies (FastAPI, uvicorn, google-genai, pillow, etc.)
+│   ├── Dockerfile            # Container definition for Cloud Run
+│   ├── config/               # Settings & Firebase Admin SDK configuration
+│   ├── models/               # Pydantic v2 request/response schemas
+│   ├── routers/              # Modular API endpoints (/garments, /outfits, /weather, /auth)
+│   └── services/             # Gemini API orchestrator, fallback CV, & Open-Meteo client
+├── src/                      # React 19 Frontend Application
+│   ├── components/           # Reusable UI components & layouts
+│   ├── pages/                # Closet, Dashboard, AddGarment, Planner, Login
+│   ├── hooks/                # useAuth, useVoiceSpeech
+│   └── lib/                  # Firebase Client SDK & API connectors
+├── server/                   # Node.js / Express Serverless Bridge
+├── firestore.rules           # Granular Firestore Role-Based Access Control
+├── Dockerfile.backend        # Multi-stage Dockerfile for Cloud Run
+└── docker-compose.yml        # Multi-container orchestration
+```
