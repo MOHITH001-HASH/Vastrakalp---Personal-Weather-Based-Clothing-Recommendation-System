@@ -50,9 +50,12 @@ export const apiClient = async (
     headers.set('Content-Type', 'application/json');
   }
 
+  const apiBase = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  const url = `${apiBase}/api/v1${endpoint}`;
+
   let response: Response;
   try {
-    response = await fetch(`/api/v1${endpoint}`, {
+    response = await fetch(url, {
       ...options,
       headers,
     });

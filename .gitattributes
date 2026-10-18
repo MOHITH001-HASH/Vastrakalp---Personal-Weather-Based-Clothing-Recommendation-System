@@ -1,0 +1,11 @@
+# GitHub Linguist language overrides
+# Ensures GitHub and AI scanners identify Python as the primary backend language
+
+backend/** linguist-detectable=true
+backend/**/*.py linguist-detectable=true
+*.py linguist-detectable=true
+
+# Mark server bridge and build artifacts as generated or vendored
+server/** linguist-vendored=true
+dist/** linguist-vendored=true
+*.min.js linguist-vendored=true
