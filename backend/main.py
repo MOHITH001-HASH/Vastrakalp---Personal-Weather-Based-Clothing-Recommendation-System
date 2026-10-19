@@ -2,7 +2,8 @@ import os
 import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config.settings import ALLOWED_ORIGINS, PORT
 from .routers import garments_router, outfits_router, weather_router, auth_router
@@ -34,12 +35,12 @@ app.include_router(weather_router, prefix="/api/v1")
 @app.get("/api/health")
 async def health_check():
     """
-    Health check endpoint for Cloud Run and uptime monitoring.
+    Health check endpoint for monitoring and uptime.
     """
     return {
         "status": "healthy",
-        "service": "Vastrakalp Python FastAPI Backend",
-        "runtime": "Python 3.10+",
+        "service": "Vastrakalp Python FastAPI Backend + React UI",
+        "runtime": "Python 3.10+ & Vite",
         "features": [
             "Gemini Multimodal Computer Vision",
             "Open-Meteo Meteorological Aggregation",
@@ -49,13 +50,37 @@ async def health_check():
     }
 
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Welcome to Vastrakalp AI Backend",
-        "docs": "/docs",
-        "health": "/api/health"
-    }
+# Serve React Frontend static files if dist/ exists
+dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist"))
+if os.path.exists(dist_dir):
+    assets_dir = os.path.join(dist_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str, request: Request):
+        # Let API routes and documentation pass through
+        if full_path.startswith("api/") or full_path in ["docs", "redoc", "openapi.json"]:
+            return JSONResponse(status_code=404, content={"error": "Not found"})
+        
+        target_file = os.path.join(dist_dir, full_path)
+        if full_path and os.path.exists(target_file) and os.path.isfile(target_file):
+            return FileResponse(target_file)
+        
+        # Fallback to index.html for React Router SPA
+        index_file = os.path.join(dist_dir, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        
+        return {"message": "Welcome to Vastrakalp AI Backend", "docs": "/docs", "health": "/api/health"}
+else:
+    @app.get("/")
+    async def root():
+        return {
+            "message": "Welcome to Vastrakalp AI Backend",
+            "docs": "/docs",
+            "health": "/api/health"
+        }
 
 
 @app.exception_handler(Exception)
