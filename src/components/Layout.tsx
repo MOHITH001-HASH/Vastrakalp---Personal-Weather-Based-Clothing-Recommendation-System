@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Home, Grid, Sparkles, LogOut, Pencil, Check, X, Users } from 'lucide-react';
+import { Home, Grid, Sparkles, LogOut, Pencil, Check, X, Users, Shirt } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 export default function Layout() {
@@ -52,7 +52,7 @@ export default function Layout() {
         <div className="h-16 flex items-center px-6 border-b border-[#eee7dd] bg-gradient-to-r from-[#f7f2ea] to-[#fbf9f6]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-700 via-amber-800 to-amber-950 flex items-center justify-center text-amber-100 shadow-xs ring-1 ring-amber-900/30">
-              <Sparkles className="w-4 h-4 text-amber-300" />
+              <Shirt className="w-4 h-4 text-amber-300" />
             </div>
             <h1 className="text-xl font-black tracking-tight text-stone-900 font-serif">
               Vastrakalp
