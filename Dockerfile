@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/backend_deps.txt .
+RUN pip install --no-cache-dir -r backend_deps.txt
 
 # Copy Python backend
 COPY backend/ ./backend/
