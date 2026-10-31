@@ -118,7 +118,7 @@ service cloud.firestore {
 
     // Families
     match /families/{familyId} {
-      allow get: if isSignedIn() && (isUserInFamily(request.auth.uid, familyId) || true);
+      allow get: if isSignedIn() && isUserInFamily(request.auth.uid, familyId);
       allow create: if isSignedIn() && isValidFamily(incoming());
       allow update: if isSignedIn() && isUserInFamily(request.auth.uid, familyId) 
         && isValidFamily(incoming()) && incoming().createdAt == existing().createdAt
@@ -164,7 +164,11 @@ service cloud.firestore {
         ||
         (incoming().diff(existing()).affectedKeys().hasOnly(['isFavorite', 'updatedAt']))
       );
-      allow delete: if isSignedIn();
+      allow delete: if isSignedIn() && (
+        resource.data.get('ownerId', '') == request.auth.uid
+        || resource.data.get('userId', '') == request.auth.uid
+        || (resource.data.get('familyId', '') != '' && isUserInFamily(request.auth.uid, resource.data.get('familyId', '')))
+      );
     }
 
     // Outfit Sessions

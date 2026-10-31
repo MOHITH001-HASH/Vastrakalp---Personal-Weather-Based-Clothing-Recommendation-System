@@ -1,12 +1,15 @@
 import io
-from fastapi import APIRouter, UploadFile, File, Header, HTTPException, status
+import logging
 from typing import Optional
+
+from fastapi import APIRouter, File, Header, HTTPException, UploadFile
 from PIL import Image
 
 from ..services.gemini_service import analyze_garment_image_python
 from ..config.firebase import db, verify_firebase_token
 
 router = APIRouter(prefix="/garments", tags=["garments"])
+logger = logging.getLogger("vastrakalp.garments")
 
 
 @router.post("/analyze")
@@ -20,6 +23,10 @@ async def analyze_garment_endpoint(
     """
     if not image:
         raise HTTPException(status_code=400, detail="No image file provided")
+
+    token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+    if not verify_firebase_token(token):
+        raise HTTPException(status_code=401, detail="Invalid Firebase authentication token")
 
     try:
         raw_bytes = await image.read()
@@ -46,9 +53,10 @@ async def analyze_garment_endpoint(
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("Garment analysis failed.")
         raise HTTPException(
             status_code=500,
-            detail=f"Garment analysis failure: {str(exc)}"
+            detail="Garment analysis failed"
         )
 
 
@@ -65,12 +73,35 @@ async def delete_garment_endpoint(
 
     token = authorization.replace("Bearer ", "") if authorization and "Bearer " in authorization else ""
     user = verify_firebase_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid Firebase authentication token")
 
-    if db:
-        try:
-            db.collection("garments").document(garment_id).delete()
-        except Exception as e:
-            # Non-blocking delete warning
-            pass
+    uid = user.get("uid") or user.get("sub")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid Firebase authentication token")
+    if not db:
+        raise HTTPException(status_code=503, detail="Firebase is unavailable")
+
+    try:
+        garment_ref = db.collection("garments").document(garment_id)
+        garment = garment_ref.get()
+        if not garment.exists:
+            raise HTTPException(status_code=404, detail="Garment not found")
+
+        data = garment.to_dict() or {}
+        owns_garment = data.get("ownerId") == uid or data.get("userId") == uid
+        family_id = data.get("familyId")
+        if not owns_garment and family_id:
+            user_snapshot = db.collection("users").document(uid).get()
+            owns_garment = (user_snapshot.to_dict() or {}).get("familyId") == family_id
+        if not owns_garment:
+            raise HTTPException(status_code=404, detail="Garment not found")
+
+        garment_ref.delete()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to delete garment.")
+        raise HTTPException(status_code=503, detail="Garment deletion failed") from exc
 
     return {"success": True, "deletedId": garment_id}

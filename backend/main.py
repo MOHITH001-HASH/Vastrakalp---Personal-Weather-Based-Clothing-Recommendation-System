@@ -1,12 +1,13 @@
-import os
+import logging
 import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from .config.settings import ALLOWED_ORIGINS, PORT
 from .routers import garments_router, outfits_router, weather_router, auth_router
+
+logger = logging.getLogger("vastrakalp.api")
 
 app = FastAPI(
     title="Vastrakalp API",
@@ -39,8 +40,8 @@ async def health_check():
     """
     return {
         "status": "healthy",
-        "service": "Vastrakalp Python FastAPI Backend + React UI",
-        "runtime": "Python 3.10+ & Vite",
+        "service": "Vastrakalp Python FastAPI API",
+        "runtime": "Python 3.12+",
         "features": [
             "Gemini Multimodal Computer Vision",
             "Open-Meteo Meteorological Aggregation",
@@ -50,41 +51,18 @@ async def health_check():
     }
 
 
-# Serve React Frontend static files if dist/ exists
-dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist"))
-if os.path.exists(dist_dir):
-    assets_dir = os.path.join(dist_dir, "assets")
-    if os.path.exists(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-    @app.get("/{full_path:path}")
-    async def serve_frontend(full_path: str, request: Request):
-        # Let API routes and documentation pass through
-        if full_path.startswith("api/") or full_path in ["docs", "redoc", "openapi.json"]:
-            return JSONResponse(status_code=404, content={"error": "Not found"})
-        
-        target_file = os.path.join(dist_dir, full_path)
-        if full_path and os.path.exists(target_file) and os.path.isfile(target_file):
-            return FileResponse(target_file)
-        
-        # Fallback to index.html for React Router SPA
-        index_file = os.path.join(dist_dir, "index.html")
-        if os.path.exists(index_file):
-            return FileResponse(index_file)
-        
-        return {"message": "Welcome to Vastrakalp AI Backend", "docs": "/docs", "health": "/api/health"}
-else:
-    @app.get("/")
-    async def root():
-        return {
-            "message": "Welcome to Vastrakalp AI Backend",
-            "docs": "/docs",
-            "health": "/api/health"
-        }
+@app.get("/")
+async def root():
+    return {
+        "message": "Vastrakalp API",
+        "docs": "/docs",
+        "health": "/api/health"
+    }
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled API error on %s", request.url.path)
     err_str = str(exc)
     if "429" in err_str or "quota" in err_str.lower() or "tpm" in err_str.lower():
         return JSONResponse(
@@ -98,7 +76,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": f"Internal Server Error: {err_str}"}
+        content={"error": "Internal Server Error", "code": "INTERNAL_SERVER_ERROR"}
     )
 
 
