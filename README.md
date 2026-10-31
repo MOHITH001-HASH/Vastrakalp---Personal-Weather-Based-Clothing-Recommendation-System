@@ -1,163 +1,114 @@
-# Vastrakalp — AI-Powered Wardrobe Management & Multi-Person Styling Platform
+# Vastrakalp
 
-Vastrakalp is an artificial intelligence application engineered for wardrobe digitization, automated computer-vision garment taxonomy extraction, climate-adaptive daily styling, and family color-coordinated ensemble planning (**HueSync™**).
+Vastrakalp is a wardrobe and weather-based styling application. The backend is a Python FastAPI service; the browser application remains React, TypeScript, and Vite.
 
-The system features a **100% Python FastAPI backend** coupled with a modern **React 19 Vite SPA frontend** and Google Cloud Firestore.
+## Architecture
 
----
+- **Frontend:** React 19, TypeScript, Vite, Firebase Authentication and Firestore client SDK.
+- **Backend:** Python 3.12+, FastAPI, Uvicorn, Firebase Admin, Gemini, Pillow, and Open-Meteo.
+- **Data:** Firebase Authentication and Cloud Firestore.
+- **Hosting:** Vercel can host the frontend and Python API function together. Alternatively, host the frontend on Vercel and the Python API on Google Cloud Run.
 
-## 1. Architecture Overview
+See [ARCHITECTURE.md](ARCHITECTURE.md) for request flow and deployment topology.
 
-```
-+-----------------------------------------------------------------------------------+
-|                                 CLIENT BROWSER                                    |
-|                                                                                   |
-|  [ React 19 SPA ] <---> [ useAuth / State ] <---> [ HTML5 Canvas Pre-Processing ]  |
-+------------------------------------+----------------------------------------------+
-                                     |
-                          HTTPS / REST API (JWT Bearer)
-                                     |
-                                     v
-+-----------------------------------------------------------------------------------+
-|                           PYTHON FASTAPI BACKEND                                  |
-|                           Directory: /backend                                     |
-|                                                                                   |
-|   - FastAPI 0.115 + Pydantic v2 Type Schemas                                      |
-|   - Uvicorn ASGI Engine (with Vercel Python Serverless support via api/index.py)  |
-|   - Google GenAI SDK (Multimodal Vision & Prompt Orchestration)                   |
-|   - Pillow (PIL) Computer Vision & Dominant Color Extraction                      |
-|   - Algorithmic Fallback Engine (HTTP 429 & Offline Resilient)                    |
-|   - Open-Meteo REST API Weather & Climate Integration                             |
-|   - Firebase Admin SDK (Authentication & Firestore Database)                      |
-|   - Containerized via Dockerfile.backend & Cloud Run Ready                        |
-+------------------------------------+----------------------------------------------+
-                                     |
-                           +---------v---------+
-                           |  CLOUD FIRESTORE  |
-                           |  (NoSQL Database) |
-                           +-------------------+
-```
+## Local setup
 
----
+Prerequisites: Python 3.12 or newer, Node.js 20 or newer, and npm.
 
-## 2. Technology Stack
+1. Copy `.env.example` to `.env` and set `GEMINI_API_KEY`, `FIREBASE_PROJECT_ID`, and `FIREBASE_DATABASE_ID` to match the Firebase project and database used by `firebase-applet-config.json`. The checked-in file supplies the browser's Firebase client configuration unless you override it with the `VITE_FIREBASE_*` values.
+2. Create and activate a Python environment, then install the API dependencies:
 
-### Backend Layer 
-- **Language**: Python 3.10+ / 3.11
-- **Framework**: FastAPI with Pydantic v2 schemas (`/backend`)
-- **Server**: Uvicorn ASGI Server
-- **Computer Vision & Image Optimization**: Pillow (PIL) for token-optimized image preprocessing and dominant color hex analysis
-- **AI Orchestration**: Google GenAI SDK (`google-genai` / `google-generativeai`) with candidate model fallback (`gemini-3.8-flash`, `gemini-3.1-flash-lite`, `gemini-flash-latest`)
-- **Resilience Engine**: Local deterministic fallback engine for both Garment Vision Analysis and Family Outfit Coordination (zero external dependency mode on rate limit / 429)
-- **Meteorology**: Open-Meteo REST API integration for real-time temperature, heat index, and humidity
-- **Authentication & DB**: Firebase Admin SDK (`firebase-admin`) with Cloud Firestore integration
-- **Containerization**: Multi-stage `Dockerfile.backend` for Google Cloud Run / Docker Compose
+   ```powershell
+   py -3.12 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   python -m pip install -r requirements-cloudrun.txt
+   ```
 
-### Frontend Layer
-- **Framework**: React 19 with TypeScript 5.8
-- **Build System**: Vite 6 (SPA with optimized client-side routing)
-- **Styling**: Tailwind CSS v4 with adaptive responsive layout
-- **State & Routing**: React Router v7, Custom React Hooks (`useAuth`, Real-time Firestore Listeners)
-- **Icons & Animation**: Lucide React, Motion (`motion/react`)
+3. In a second terminal, install and start the frontend:
 
-### Persistence & Security
-- **Database**: Google Cloud Firestore (NoSQL Document Store)
-- **Authentication**: Firebase Authentication (Google OAuth Popup, Email/Password)
-- **Security Rules**: User-level Role-Based Access Control (`firestore.rules`) strictly isolating wardrobes per authenticated user UID.
+   ```powershell
+   npm install
+   npm run dev
+   ```
 
----
+4. Start the API from the repository root:
 
-## 3. High-Resilience Fallback Architecture
+   ```powershell
+   python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+   ```
 
-To handle upstream Gemini API rate limits (HTTP 429), high-demand spikes (HTTP 503), or network latency, Vastrakalp implements two-tier fallback across all AI operations:
+The frontend is at `http://localhost:5173`; the API health check and interactive API docs are at `http://localhost:8000/api/health` and `http://localhost:8000/docs`. To use Firebase Admin locally, use Google Application Default Credentials or set `GOOGLE_APPLICATION_CREDENTIALS` to a local service-account file. Keep credential files out of source control.
 
-| Operation | Primary AI Engine | Fallback Engine | Fallback Capability |
-| :--- | :--- | :--- | :--- |
-| **Garment Vision Extraction** | Gemini Multimodal Vision (`gemini-3.8-flash` / `gemini-3.1-flash-lite`) | **Local Deterministic Computer Vision Engine** | Analyzes image bytes via Pillow/Canvas to extract dominant RGB/hex, luminance, aspect-ratio heuristics, and standard styling metadata. |
-| **HueSync™ Outfit Coordination** | Gemini Multimodal Prompt Orchestrator | **Algorithmic Color-Harmony Matcher** | Computes mathematical color harmony (analogous, complementary, monochromatic) and aligns thermal insulation to live weather metrics without external API calls. |
+To run the API in Docker, configure `.env` and run `docker compose up --build`. If the container needs Firebase Admin access locally, provide credentials via `FIREBASE_SERVICE_ACCOUNT_JSON` in the ignored `.env` file. Run the Vite frontend separately with `npm run dev`.
 
----
+## Environment variables
 
-## 4. Running the Python Backend Locally & with Docker
+Set server variables in `.env` for local work, Vercel project settings for Vercel, or Cloud Run environment/Secret Manager configuration for Cloud Run. Never commit actual secrets.
 
-### Option A: Local Python Environment
-```bash
-# 1. Navigate to backend directory
-cd backend
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | For Gemini-backed analysis | Server-only Gemini API key. The app can use its deterministic fallback when unset. |
+| `FIREBASE_PROJECT_ID` | Yes for Firebase Admin | Firebase/Google Cloud project ID. |
+| `FIREBASE_DATABASE_ID` | Yes for this configured project | Firestore database ID matching the browser client configuration; use `(default)` only when using Firestore's default database. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Vercel only | Full service-account JSON stored as a protected server-side environment variable. Do not use a downloaded key on Cloud Run. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Local only, optional | Path to a local service-account file; prefer Application Default Credentials. |
+| `ALLOWED_ORIGINS` | Only for cross-origin browser API calls | Comma-separated exact browser origins, with no trailing slash or wildcard. Vercel's same-origin API does not require CORS configuration. |
+| `PORT` | No | Local API port (default `8000`). Cloud Run provides its own `PORT`. |
+| `VITE_API_URL` | Cloud Run frontend only | Public base URL of the Cloud Run API, for example `https://your-service-xxxxx-uc.a.run.app`. Leave blank for same-origin Vercel routing. |
+| `VITE_FIREBASE_API_KEY` | If not using the checked-in client config | Public Firebase Web API key. |
+| `VITE_FIREBASE_PROJECT_ID` | If not using the checked-in client config | Public Firebase project ID. |
+| `VITE_FIREBASE_APP_ID` | If not using the checked-in client config | Public Firebase app ID. |
+| `VITE_FIREBASE_AUTH_DOMAIN` | If not using the checked-in client config | Public Firebase Authentication domain. |
+| `VITE_FIREBASE_STORAGE_BUCKET` | If not using the checked-in client config | Public Firebase Storage bucket. |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | If not using the checked-in client config | Public Firebase messaging sender ID. |
+| `VITE_FIREBASE_DATABASE_ID` | No | Public Firestore database ID used by the browser SDK. |
 
-# 2. Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+`VITE_*` values are compiled into the browser bundle and are **public configuration, not secrets**. Do not put Gemini keys, service-account credentials, or other server credentials in a `VITE_*` variable.
 
-# 3. Install requirements
-pip install -r requirements.txt
+## Deploy to Vercel
 
-# 4. Set environment variables
-export GEMINI_API_KEY="your-gemini-api-key"
-export FIREBASE_PROJECT_ID="gen-lang-client-0005527197"
-export FIREBASE_DATABASE_ID="ai-studio-77024999-4ce1-49cc-90b6-b6cec4d5a94a"
+The repository includes `api/index.py`, which exports the FastAPI ASGI application, and `vercel.json`, which routes `/api/*` to that function and other paths to the Vite SPA. Vercel installs the lean root `requirements.txt`; the function configuration excludes frontend source, built assets, and documentation from its bundle.
 
-# 5. Run FastAPI development server
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-```
-Interactive API Documentation:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-- Health Check: `http://localhost:8000/api/health`
+1. Import the repository into Vercel and keep the repository root as the project root.
+2. Before deploying, add these **Production** environment variables in **Project Settings → Environment Variables**:
+   - `GEMINI_API_KEY`
+   - `FIREBASE_PROJECT_ID`
+   - `FIREBASE_DATABASE_ID`, matching the browser Firebase database configuration
+   - `FIREBASE_SERVICE_ACCOUNT_JSON` containing the Firebase Admin service-account JSON, stored as a sensitive server-side value
+   - `VITE_FIREBASE_*` values only if the checked-in `firebase-applet-config.json` is not the desired public client configuration
+3. Deploy. The Vercel API and frontend share an origin, so leave `VITE_API_URL` blank. Set `FIREBASE_SERVICE_ACCOUNT_JSON` only in server-side project environment settings, never with a `VITE_` prefix.
 
-### Option B: Deploying Python Backend to Google Cloud Run
-```bash
-# 1. Build and push container to Google Artifact Registry
-gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/vastrakalp-backend -f Dockerfile.backend
+Create a dedicated service account with only the permissions the app requires, protect and rotate its key, and configure Firebase Authentication's authorized domains and Firestore security rules. Vercel functions do not have Cloud Run's attached service identity; a server-side service-account credential is needed for Firebase Admin access there.
 
-# 2. Deploy to Cloud Run
-gcloud run deploy vastrakalp-backend \
-  --image gcr.io/YOUR_PROJECT_ID/vastrakalp-backend \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --set-env-vars GEMINI_API_KEY="your-key",FIREBASE_PROJECT_ID="your-project-id"
+## Deploy the Python API to Google Cloud Run
+
+Use Cloud Run for the API and Vercel for the React frontend. Before deployment, enable Cloud Run, Cloud Build, Artifact Registry, and Firestore APIs; create an Artifact Registry Docker repository; and select a region. Give the Cloud Run runtime service account Firestore access (for example, `roles/datastore.user`). Cloud Run uses Application Default Credentials from that identity; do not upload a service-account key.
+
+1. Create a Secret Manager secret for `GEMINI_API_KEY`, grant the Cloud Run runtime service account permission to access that secret, and set its value there.
+2. Build the Python container from the repository root:
+
+   ```sh
+   gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT_ID/REPOSITORY/vastrakalp-api --file Dockerfile.backend .
+   ```
+
+3. Deploy the image. Replace the example values with your project, region, runtime service account, and Vercel origin:
+
+   ```sh
+   gcloud run deploy vastrakalp-api --image REGION-docker.pkg.dev/PROJECT_ID/REPOSITORY/vastrakalp-api --region REGION --service-account vastrakalp-runtime@PROJECT_ID.iam.gserviceaccount.com --allow-unauthenticated --set-env-vars "FIREBASE_PROJECT_ID=PROJECT_ID,FIREBASE_DATABASE_ID=FIRESTORE_DATABASE_ID,ALLOWED_ORIGINS=https://YOUR-APP.vercel.app" --set-secrets "GEMINI_API_KEY=gemini-api-key:latest"
+   ```
+
+   `--allow-unauthenticated` makes the HTTP service reachable by the browser; application routes still verify Firebase ID tokens. Weather and health endpoints are public.
+4. Set the Vercel production variable `VITE_API_URL` to the Cloud Run service URL, and set the backend `ALLOWED_ORIGINS` to the exact Vercel frontend origin. Redeploy the frontend after changing its `VITE_*` variables.
+
+Set `FIREBASE_DATABASE_ID` to the same database used by the browser configuration; use `(default)` only if the app is configured for the default Firestore database. Cloud Run's `PORT` is supplied by the platform and the container binds to it. Verify the deployed service at `/api/health`, then test sign-in, a protected API request, and the frontend-to-API connection.
+
+## Checks
+
+```sh
+npm run lint
+npm run build
+python -m compileall -q backend api
+python -m unittest discover -s tests
 ```
 
-### Option C: Docker Compose (Full Stack)
-```bash
-docker-compose up --build
-```
-
----
-
-## 5. Deploying to Vercel
-
-Vastrakalp supports Vercel deployment with native Python ASGI runtime:
-1. Push repository to **GitHub**.
-2. Import project into [Vercel](https://vercel.com).
-3. Set environment variables:
-   - `GEMINI_API_KEY`: Your Google Gemini API Key.
-   - `VITE_API_URL`: (Optional, points to Cloud Run if hosted externally; otherwise defaults to `/api` which runs `api/index.py`).
-4. Click **Deploy**. Vercel will build the frontend with `vite build` and route `/api/*` to `api/index.py` (FastAPI).
-
----
-
-## 6. Directory Structure
-
-```
-├── backend/                  # Full Python FastAPI Backend
-│   ├── main.py               # FastAPI entry point, CORS, routers & exception handlers
-│   ├── requirements.txt      # Python dependencies (FastAPI, uvicorn, google-genai, pillow, etc.)
-│   ├── Dockerfile            # Container definition for Cloud Run
-│   ├── config/               # Settings & Firebase Admin SDK configuration
-│   ├── models/               # Pydantic v2 request/response schemas
-│   ├── routers/              # Modular API endpoints (/garments, /outfits, /weather, /auth)
-│   └── services/             # Gemini API orchestrator, fallback CV, & Open-Meteo client
-├── src/                      # React 19 Frontend Application (Vite SPA)
-│   ├── components/           # Reusable UI components & layouts
-│   ├── pages/                # Closet, Dashboard, AddGarment, Planner, Login
-│   ├── hooks/                # useAuth, useVoiceSpeech
-│   └── lib/                  # Firebase Client SDK & API connectors
-├── api/                      # Serverless entry point
-│   └── index.py              # Python ASGI / FastAPI export for serverless runtimes
-├── requirements.txt          # Root Python dependencies for scanners & deployers
-├── firestore.rules           # Granular Firestore Role-Based Access Control
-├── Dockerfile.backend        # Multi-stage Dockerfile for Cloud Run
-└── docker-compose.yml        # Multi-container orchestration
-```
+Live deployment checks require configured Firebase, Gemini, Vercel, and Google Cloud resources.

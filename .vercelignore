@@ -1,7 +1,12 @@
-# Ignore backend, python requirements, and docker files on Vercel so Vercel builds purely as a static React frontend
-requirements.txt
-backend/
-api/
+node_modules
+.git
+.env
+.venv
+venv
+__pycache__
+*.py[cod]
 Dockerfile
 Dockerfile.backend
 docker-compose.yml
+ARCHITECTURE.md
+tests

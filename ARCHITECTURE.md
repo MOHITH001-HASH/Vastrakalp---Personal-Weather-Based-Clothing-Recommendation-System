@@ -1,297 +1,61 @@
-# Vastrakalp — Technical Architecture & System Design Document
+# Vastrakalp architecture
 
-This document serves as the authoritative architectural specification for Vastrakalp, detailing the end-to-end data pipelines, AI orchestration strategies, serverless and server topologies, resilience guarantees, and security policies.
+The repository has a Python-only backend and a React/TypeScript browser frontend. Backend hosting can be serverless on Vercel or containerized on Google Cloud Run.
 
----
-
-## 1. High-Level System Architecture & Deployment Topology
-
-Vastrakalp is designed with a pure Python FastAPI backend architecture supporting both **Containerized execution (Cloud Run / Docker)** and **Serverless ASGI execution (Vercel via api/index.py)** alongside a Vite React 19 frontend.
+## Request and data flow
 
 ```mermaid
 flowchart TB
-    subgraph ClientLayer ["Client Presentation & State (React 19 / TypeScript)"]
-        UI[User Interface & Pages]
-        AuthContext[useAuth & Firebase Auth Context]
-        ApiClient[Robust API Client with Exponential Backoff]
-        CanvasProc[HTML5 Canvas Pre-Processing Worker]
-    end
+    Browser["React + Vite browser app"]
+    Auth["Firebase Authentication"]
+    Vercel["Vercel: frontend and Python function"]
+    CloudRun["Google Cloud Run: Python API container"]
+    API["FastAPI endpoints: /api/v1/*"]
+    Gemini["Gemini API"]
+    Weather["Open-Meteo"]
+    Admin["Firebase Admin SDK"]
+    Store[("Cloud Firestore")]
 
-    subgraph EdgeGateway ["API Gateway & Routing Layer"]
-        VercelServerless["Vercel Serverless Function (/api/index.py)"]
-        FastAPIApp["FastAPI ASGI Backend (/backend/main.py)"]
-        AuthMiddleware["Firebase JWT Bearer Verification Middleware"]
-        RateLimiter["Rate Limiting & Safety Exception Trap"]
-    end
-
-    subgraph ServiceLayer ["Core Business Services"]
-        PillowEngine["Pillow Image Processor (JPEG @ 768px RGB)"]
-        WeatherAggregator["Open-Meteo Meteorological Aggregator & Cache"]
-        HueSyncService["HueSync™ Multi-Person Harmony Engine"]
-    end
-
-    subgraph AIEngine ["Multimodal AI & Fallback Pipeline"]
-        ModelRouter["Multi-Tier Foundation Model Router"]
-        PromptCompiler["Structured Prompt & JSON Schema Compiler"]
-        DeterministicFallback["Algorithmic Color & Thermal Rule Matcher"]
-    end
-
-    subgraph PersistenceLayer ["Persistence & Identity Layer (Google Cloud)"]
-        FirebaseAuth["Firebase Authentication (Google Identity)"]
-        FirestoreDB[("Cloud Firestore Document Store")]
-    end
-
-    UI --> AuthContext
-    UI --> ApiClient
-    UI --> CanvasProc
-    CanvasProc --> ApiClient
-
-    ApiClient --> VercelServerless
-    ApiClient --> FastAPIApp
-    VercelServerless --> AuthMiddleware
-    FastAPIApp --> AuthMiddleware
-    AuthMiddleware --> RateLimiter
-
-    RateLimiter --> PillowEngine
-    RateLimiter --> WeatherAggregator
-    RateLimiter --> HueSyncService
-
-    HueSyncService --> ModelRouter
-    PillowEngine --> ModelRouter
-    ModelRouter --> PromptCompiler
-    PromptCompiler -.->|429 / 503 / Quota Exceeded| DeterministicFallback
-
-    AuthContext --> FirebaseAuth
-    VercelServerless --> FirestoreDB
-    FastAPIApp --> FirestoreDB
+    Browser -->|"Sign in"| Auth
+    Browser -->|"Same-origin REST requests"| Vercel
+    Vercel -->|"Routes /api/*"| API
+    Browser -->|"VITE_API_URL + Firebase ID token"| CloudRun
+    CloudRun --> API
+    API -->|"AI requests"| Gemini
+    API -->|"Weather requests"| Weather
+    API --> Admin
+    Admin --> Store
+    Browser -->|"Firebase client SDK"| Store
 ```
 
----
+The browser obtains Firebase ID tokens and sends them as bearer tokens for protected API operations. The backend verifies tokens with Firebase Admin; it does not accept unsigned token payloads or issue a development identity. Firebase client configuration is public browser configuration. Gemini credentials and any Firebase Admin service-account credential remain server-side.
 
-## 2. Garment Ingestion & Multimodal Vision Pipeline
+Weather data is retrieved from Open-Meteo. Garment analysis and outfit recommendations use the Gemini integration when configured and the backend's deterministic fallback where implemented.
 
-The garment digitization pipeline ingests raw, uncalibrated photographs and transforms them into standardized, queryable wardrobe entities:
+## Hosting topology
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as User / Camera
-    participant UI as AddGarment.tsx
-    participant ClientCanvas as Client HTML5 Canvas
-    participant API as /api/v1/garments/analyze
-    participant Sharp as Sharp Engine
-    participant Gemini as Gemini Vision (gemini-2.5-flash)
-    participant Firestore as Cloud Firestore
+### Vercel
 
-    User->>UI: Selects / Takes Photo of Garment
-    UI->>ClientCanvas: Pre-scales image to max 1200px dimension
-    ClientCanvas-->>UI: Optimized File Blob (~150-300 KB)
-    UI->>API: POST multipart/form-data (image + Firebase JWT)
-    API->>API: Verify Bearer ID Token
-    API->>Sharp: Normalize to 1024x1024 JPEG (quality: 80, EXIF auto-rotate)
-    Sharp-->>API: Normalized Image Buffer (~60-120 KB)
-    API->>Gemini: generateContent with GarmentAnalysisSchema
-    Note over API,Gemini: Extracts Category, Sub-Category, Primary & Accent Colors, Formality (1-5), Thermal Weight (1-5), Pattern
-    Gemini-->>API: Validated JSON Object
-    API-->>UI: Returns Attribute Payload
-    UI->>User: Displays Extracted Attributes & Color Swatches for Confirmation
-    User->>UI: Confirms / Edits Details
-    UI->>Firestore: addDoc to 'garments' collection
-    Firestore-->>UI: Garment Document Created
-```
+`vercel.json` sends `/api/*` to `api/index.py`, which exports `backend.main:app` for the Python ASGI runtime. Other paths serve the built Vite application. Vercel installs the lean root `requirements.txt`; its function configuration excludes frontend assets, tests, and docs. `requirements-cloudrun.txt` adds Uvicorn for local API execution and Cloud Run. Set Firebase Admin credentials server-side using the protected `FIREBASE_SERVICE_ACCOUNT_JSON` environment variable.
 
----
+### Cloud Run
 
-## 3. Real-Time Microclimate Context Engine
+`Dockerfile.backend` installs `requirements-cloudrun.txt` and builds/runs only the Python API. The container listens on the platform-provided `PORT` (defaulting to `8080` for local container use). Cloud Run should use its attached service identity and Application Default Credentials for Firestore rather than a downloaded service-account key. The Vite frontend can remain on Vercel and call the Cloud Run service using the public `VITE_API_URL` setting.
 
-Outfit selection dynamically factors in local meteorological variables. The weather service translates raw atmospheric metrics into wearable thermal recommendations.
+When frontend and API origins differ, configure `ALLOWED_ORIGINS` with the exact frontend origin. Same-origin Vercel routing does not require browser CORS.
 
-### Atmospheric Metrics Ingestion
+## Runtime configuration
 
-```mermaid
-flowchart LR
-    GPS[Client Geolocation / City Search] --> WeatherAPI[/api/v1/weather]
-    WeatherAPI --> OpenMeteo[Open-Meteo Meteorological Service]
-    OpenMeteo --> Parser[Atmospheric Parser]
-    
-    subgraph Computation ["Thermal & Style Indexing"]
-        Parser --> Temp[Temperature °C / °F]
-        Parser --> ApparentTemp[Apparent Heat Index °C]
-        Parser --> Humidity[Relative Humidity %]
-        Parser --> RainProb[Precipitation Probability %]
-        Parser --> WCode[WMO Weather Code]
-    end
+| Setting | Consumer | Handling |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | Python API | Server-side secret; configure through Vercel environment settings or Cloud Run Secret Manager. |
+| `FIREBASE_PROJECT_ID` | Python API | Project ID for Firebase Admin initialization. |
+| `FIREBASE_DATABASE_ID` | Python API and browser build | Match the configured browser database; set `(default)` only when using the default Firestore database. |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Vercel Python function | Protected server-side service-account JSON value for Firebase Admin. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Local Python API | Optional local credential-file path; do not commit the file. |
+| `ALLOWED_ORIGINS` | Python API | Comma-separated exact origins for cross-origin deployments. |
+| `PORT` | Python API | Local default is `8000`; Cloud Run supplies the runtime port. |
+| `VITE_API_URL` | Vite browser build | Empty for same-origin Vercel; Cloud Run URL when hosted separately. |
+| `VITE_FIREBASE_*` | Vite browser build | Public Firebase Web SDK configuration; falls back to `firebase-applet-config.json`. |
 
-    Computation --> AdviceEngine[Style Advice Evaluator]
-    AdviceEngine --> ThermalWeight["Recommended Thermal Weight (1 to 5)"]
-    AdviceEngine --> OuterwearFlag["Outerwear / Rain Layer Required (Boolean)"]
-    AdviceEngine --> BreathabilityScore["Fabric Breathability Priority (High/Med/Low)"]
-```
-
-### Thermal Mapping Matrix
-
-| Ambient / Apparent Temp (°C) | Rain Probability (%) | Recommended Thermal Weight | Recommended Garment Types |
-| :--- | :--- | :--- | :--- |
-| **> 30°C** | Any | Level 1 (Ultra-Light) | Linen shirts, cotton t-shirts, shorts, breathable skirts, sandals |
-| **24°C - 30°C** | < 30% | Level 2 (Light) | Lightweight cottons, chinos, summer dresses, polo shirts, sneakers |
-| **18°C - 24°C** | < 40% | Level 2–3 (Moderate) | Long-sleeve shirts, jeans, lightweight knitwear, smart casual blazers |
-| **12°C - 18°C** | Any | Level 3–4 (Medium-Heavy) | Sweaters, cardigans, denim jackets, trench coats, closed leather shoes |
-| **< 12°C** | Any | Level 5 (Heavy / Insulated) | Wool coats, thermal base layers, parkas, boots, scarves |
-| **Any** | **≥ 50%** | N/A (Rain Overlay) | Water-resistant outerwear, boots, dark bottoms to prevent water spots |
-
----
-
-## 4. Multi-Agent Event & HueSync™ Coordination Engine
-
-The Outfit Planner (`/src/pages/Planner.tsx`) coordinates ensembles across single or multiple family members for specific events.
-
-```mermaid
-flowchart TD
-    Prompt[User Natural Language Prompt, e.g. 'Garden Wedding with Family'] --> ContextAggregator[Context Aggregator]
-    Attendees[Selected Attendees: Self, Partner, Kids] --> ContextAggregator
-    ClosetQuery[Fetch Garments per Attendee ID] --> ContextAggregator
-    WeatherPayload[Live Microclimate Data] --> ContextAggregator
-
-    ContextAggregator --> Orchestrator[Gemini HueSync Planner]
-
-    subgraph ColorTheoryEngine ["HueSync™ Harmony Pipeline"]
-        Orchestrator --> PalettePicker[Determine Group Theme Palette, e.g. Sage, Cream, Sand]
-        PalettePicker --> IsolationGuard[Isolate Wardrobe Items per Family Member]
-        IsolationGuard --> FormalityMatch[Match Event Formality Level: Casual=1 to Black Tie=5]
-        FormalityMatch --> ThermalGuard[Filter Items by Thermal Index]
-        ThermalGuard --> EnsembleSynthesizer[Assemble Coordinated Outfit per Attendee]
-    end
-
-    EnsembleSynthesizer --> OutputSchemaEnforcer[HueSyncFamilyOutfitPlan Schema Validator]
-    OutputSchemaEnforcer --> Response[Return Attending Outfits + Color Swatches + Styling Rationales]
-```
-
----
-
-## 5. Resilience & Multi-Tier AI Model Fallback Architecture
-
-To protect against upstream latency, rate-limits (HTTP 429), or capacity spikes (HTTP 503), the pure Python FastAPI backend implements an automated state machine for **both Image Analysis AND Outfit Coordination**:
-
-```mermaid
-stateDiagram-v2
-    [*] --> PrimaryTier: Dispatch Request
-    
-    state PrimaryTier {
-        [*] --> Gemini38Flash: Try gemini-3.8-flash
-        Gemini38Flash --> Success: 200 OK
-        Gemini38Flash --> Model31Lite: Rate Limit (429) / Overloaded (503)
-    }
-
-    state SecondaryTier {
-        Model31Lite: Try gemini-3.1-flash-lite
-        Model31Lite --> Success: 200 OK
-        Model31Lite --> ModelFlashLatest: Rate Limit (429) / Overloaded (503)
-    }
-
-    state TertiaryTier {
-        ModelFlashLatest: Try gemini-flash-latest
-        ModelFlashLatest --> Success: 200 OK
-        ModelFlashLatest --> AlgorithmicMatcher: All AI Models Exhausted
-    }
-
-    state LocalDeterministicFallback {
-        AlgorithmicMatcher: Deterministic CV & Color Harmony Rule Matcher
-        AlgorithmicMatcher --> FallbackSuccess: High-Fidelity Attributes / Outfit Generated
-    }
-
-    Success --> [*]: Return JSON
-    FallbackSuccess --> [*]: Return JSON (Zero Downtime)
-```
-
----
-
-## 6. Database Schema Specification (Firestore)
-
-### Collection: `users/{userId}`
-Represents the authenticated root account.
-```typescript
-interface UserDocument {
-  id: string;                      // Firebase Auth UID
-  email: string;                   // User email
-  firstName: string;               // Display name
-  lastName?: string;               // Optional surname
-  preferredPalette?: string[];     // Array of favorite color hex codes
-  createdAt: Timestamp;            // Document creation date
-  updatedAt: Timestamp;            // Document update date
-}
-```
-
-### Collection: `garments/{garmentId}`
-Represents an individual wardrobe item.
-```typescript
-interface GarmentDocument {
-  id: string;                      // Auto-generated Firestore ID
-  userId: string;                  // Owner UID
-  ownerId: string;                 // 'self' or FamilyMember ID
-  name: string;                    // Garment title (e.g., 'Navy Linen Blazer')
-  category: 'top' | 'bottom' | 'outerwear' | 'footwear' | 'accessory' | 'suit' | 'kurta_set' | 'co_ord_set' | 'dress';
-  subCategory: string;             // Detailed classification (e.g., 'Oxfords', 'Chinos')
-  primaryColorName: string;        // Human-readable color (e.g., 'Navy Blue')
-  primaryColorHex: string;         // Standard 6-character hex code (#1e3a8a)
-  secondaryColorHex?: string;      // Optional accent color hex
-  pattern: 'solid' | 'striped' | 'plaid' | 'floral' | 'printed' | 'textured' | 'other';
-  formality: 1 | 2 | 3 | 4 | 5;    // 1: Loungewear -> 5: Black Tie
-  thermalWeight: 1 | 2 | 3 | 4 | 5;// 1: Breathable -> 5: Heavy Winter
-  imageUrl: string;                // Base64 data URI or CDN URL
-  tags: string[];                  // Searchable keyword tags
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-```
-
-### Collection: `familyMembers/{memberId}`
-Represents managed profiles within a household account.
-```typescript
-interface FamilyMemberDocument {
-  id: string;                      // Auto-generated Firestore ID
-  userId: string;                  // Primary Account Owner UID
-  name: string;                    // Member Name (e.g., 'Aarav')
-  relationship: 'self' | 'partner' | 'child' | 'parent' | 'sibling' | 'other';
-  avatarColor: string;             // UI Representation Hex
-  createdAt: Timestamp;
-}
-```
-
-### Collection: `garmentWears/{wearId}`
-Logs garment usage frequency and history.
-```typescript
-interface GarmentWearDocument {
-  id: string;                      // Auto-generated Firestore ID
-  userId: string;                  // Account Owner UID
-  garmentId: string;               // Reference to garments collection
-  wornDate: string;                // YYYY-MM-DD
-  eventId?: string;                // Optional linked event ID
-  createdAt: Timestamp;
-}
-```
-
----
-
-## 7. Security Architecture & Role-Based Access Control
-
-Data isolation is enforced at both the API Gateway and Firestore Security Rules layers:
-
-```
-+-------------------------------------------------------------------------------+
-|                         FIREBASE SECURITY RULES                               |
-|                                                                               |
-|  match /users/{userId}          -> allow read, write: if request.auth.uid == userId;
-|  match /garments/{garmentId}    -> allow read, write: if request.auth.uid == resource.data.userId;
-|  match /familyMembers/{memId}   -> allow read, write: if request.auth.uid == resource.data.userId;
-|  match /garmentWears/{wearId}   -> allow read, write: if request.auth.uid == resource.data.userId;
-+-------------------------------------------------------------------------------+
-```
-
----
-
-## 8. Summary of Architectural Guarantees
-
-1. **Zero Client Secret Leakage**: The Gemini API key and backend configuration are never exposed to browser memory or client bundles.
-2. **Dual Serverless & Monolith Compatibility**: Native serverless routing through `vercel.json` (`api/index.py`) alongside long-running standalone FastAPI Uvicorn container execution (`Dockerfile.backend` / Cloud Run).
-3. **Determinism Under High Load**: The multi-tiered fallback design ensures that regardless of external API quota state, users always receive an aesthetically coordinated, weather-compliant outfit recommendation.
-4. **Low Latency Pre-Processing**: Client-side canvas normalization paired with server-side Pillow pipeline keeps payload sizes strictly below 200 KB per garment analysis.
+Never put server credentials in `VITE_*` variables. Firebase Web API keys and app IDs are public identifiers, not replacements for Firebase Authentication or Firestore security rules.

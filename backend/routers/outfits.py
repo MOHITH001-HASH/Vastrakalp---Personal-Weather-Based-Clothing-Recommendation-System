@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Header, HTTPException
 from typing import Optional, Dict, Any, List
 
@@ -6,6 +7,7 @@ from ..services.gemini_service import suggest_family_outfit_python
 from ..config.firebase import db, verify_firebase_token
 
 router = APIRouter(prefix="/outfits", tags=["outfits"])
+logger = logging.getLogger("vastrakalp.outfits")
 
 
 @router.post("/suggest")
@@ -21,6 +23,14 @@ async def suggest_outfit_endpoint(
     if not event_prompt:
         raise HTTPException(status_code=400, detail="Event prompt is required")
 
+    token = authorization.removeprefix("Bearer ").strip() if authorization else ""
+    user = verify_firebase_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid Firebase authentication token")
+    user_id = user.get("uid") or user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid Firebase authentication token")
+
     weather_data = payload.weather or {
         "temp_c": 27.0,
         "apparent_temp_c": 29.5,
@@ -33,15 +43,16 @@ async def suggest_outfit_endpoint(
     # If single user closet provided
     if not family_closets:
         raw_garments = payload.garments or []
-        token = authorization.replace("Bearer ", "") if authorization and "Bearer " in authorization else ""
-        user = verify_firebase_token(token)
 
-        if not raw_garments and db and user:
+        if not raw_garments and not db:
+            raise HTTPException(status_code=503, detail="Firebase is unavailable")
+        if not raw_garments:
             try:
-                docs = db.collection("garments").where("ownerId", "==", user.get("uid")).stream()
+                docs = db.collection("garments").where("ownerId", "==", user_id).stream()
                 raw_garments = [doc.to_dict() | {"id": doc.id} for doc in docs]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.exception("Failed to load garments for outfit suggestion.")
+                raise HTTPException(status_code=503, detail="Unable to load garments") from exc
 
         if not raw_garments:
             raise HTTPException(status_code=400, detail="Closet is empty. Please add garments first.")
@@ -76,7 +87,8 @@ async def suggest_outfit_endpoint(
         )
         return recommendation
     except Exception as e:
+        logger.exception("Outfit recommendation failed.")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate outfit recommendation: {str(e)}"
+            detail="Failed to generate outfit recommendation"
         )
