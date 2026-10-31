@@ -4,7 +4,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.py": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "excludeFiles": "{README.md,ARCHITECTURE.md,*.md,src/**,public/**,dist/**,tests/**,node_modules/**,.venv/**,venv/**,package.json,tsconfig.json,vite.config.ts,index.html,firebase-applet-config.json,firebase-blueprint.json,firestore.rules}"
     }
   },
   "rewrites": [

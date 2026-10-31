@@ -99,39 +99,24 @@ def analyze_garment_image_python(image_bytes: bytes, mime_type: str = "image/jpe
 
         for model_name in CANDIDATE_MODELS:
             try:
-                # Try google-genai or google.generativeai
-                try:
-                    from google import genai
-                    from google.genai import types
-                    client = genai.Client(api_key=api_key)
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[
-                            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                            prompt
-                        ],
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=GARMENT_ANALYSIS_SCHEMA,
-                            temperature=0.2
-                        )
-                    )
-                    if response.text:
-                        return json.loads(response.text)
-                except ImportError:
-                    import google.generativeai as gai
-                    gai.configure(api_key=api_key)
-                    gai_model = gai.GenerativeModel(model_name)
-                    response = gai_model.generate_content([
-                        {"mime_type": mime_type, "data": image_bytes},
+                from google import genai
+                from google.genai import types
+
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                         prompt
-                    ])
-                    if response.text:
-                        # Extract JSON from response text
-                        txt = response.text.strip()
-                        if "```json" in txt:
-                            txt = txt.split("```json")[1].split("```")[0].strip()
-                        return json.loads(txt)
+                    ],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=GARMENT_ANALYSIS_SCHEMA,
+                        temperature=0.2
+                    )
+                )
+                if response.text:
+                    return json.loads(response.text)
             except Exception as e:
                 logger.warning(f"[Gemini Python] Model {model_name} failed: {e}. Trying next candidate...")
 
@@ -162,36 +147,23 @@ def suggest_family_outfit_python(
 
         for model_name in CANDIDATE_MODELS:
             try:
-                try:
-                    from google import genai
-                    from google.genai import types
-                    client = genai.Client(api_key=api_key)
-                    closets_json = json.dumps([
-                        m.model_dump() if hasattr(m, "model_dump") else m for m in family_closets
-                    ])
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[system_prompt, f"Available Wardrobes:\n{closets_json}"],
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            temperature=0.3
-                        )
+                from google import genai
+                from google.genai import types
+
+                client = genai.Client(api_key=api_key)
+                closets_json = json.dumps([
+                    m.model_dump() if hasattr(m, "model_dump") else m for m in family_closets
+                ])
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[system_prompt, f"Available Wardrobes:\n{closets_json}"],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.3
                     )
-                    if response.text:
-                        return json.loads(response.text)
-                except ImportError:
-                    import google.generativeai as gai
-                    gai.configure(api_key=api_key)
-                    gai_model = gai.GenerativeModel(model_name)
-                    closets_json = json.dumps([
-                        m.model_dump() if hasattr(m, "model_dump") else m for m in family_closets
-                    ])
-                    response = gai_model.generate_content([system_prompt, f"Wardrobes:\n{closets_json}"])
-                    if response.text:
-                        txt = response.text.strip()
-                        if "```json" in txt:
-                            txt = txt.split("```json")[1].split("```")[0].strip()
-                        return json.loads(txt)
+                )
+                if response.text:
+                    return json.loads(response.text)
             except Exception as e:
                 logger.warning(f"[Gemini Python] Outfit model {model_name} error: {e}")
 

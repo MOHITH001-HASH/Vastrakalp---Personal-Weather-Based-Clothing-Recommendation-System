@@ -21,7 +21,7 @@ Prerequisites: Python 3.12 or newer, Node.js 20 or newer, and npm.
    ```powershell
    py -3.12 -m venv .venv
    .\.venv\Scripts\Activate.ps1
-   python -m pip install -r requirements.txt
+   python -m pip install -r requirements-cloudrun.txt
    ```
 
 3. In a second terminal, install and start the frontend:
@@ -67,7 +67,7 @@ Set server variables in `.env` for local work, Vercel project settings for Verce
 
 ## Deploy to Vercel
 
-The repository includes `api/index.py`, which exports the FastAPI ASGI application, and `vercel.json`, which routes `/api/*` to that function and other paths to the Vite SPA.
+The repository includes `api/index.py`, which exports the FastAPI ASGI application, and `vercel.json`, which routes `/api/*` to that function and other paths to the Vite SPA. Vercel installs the lean root `requirements.txt`; the function configuration excludes frontend source, built assets, and documentation from its bundle.
 
 1. Import the repository into Vercel and keep the repository root as the project root.
 2. Before deploying, add these **Production** environment variables in **Project Settings → Environment Variables**:

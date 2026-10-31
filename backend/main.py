@@ -1,5 +1,4 @@
 import logging
-import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -81,4 +80,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run("backend.main:app", host="0.0.0.0", port=PORT, reload=True)

@@ -35,7 +35,7 @@ if firebase_admin is not None:
             else:
                 firebase_admin.initialize_app(options=options)
 
-        db = firestore.client(database=FIREBASE_DATABASE_ID)
+        db = firestore.client(database_id=FIREBASE_DATABASE_ID)
         firebase_auth = auth
         logger.info("Firebase Admin initialized for project: %s", FIREBASE_PROJECT_ID)
     except Exception:

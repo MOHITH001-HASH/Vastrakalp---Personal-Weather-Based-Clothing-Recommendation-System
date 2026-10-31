@@ -36,11 +36,11 @@ Weather data is retrieved from Open-Meteo. Garment analysis and outfit recommend
 
 ### Vercel
 
-`vercel.json` sends `/api/*` to `api/index.py`, which exports `backend.main:app` for the Python ASGI runtime. Other paths serve the built Vite application. The Vercel function requires the root `requirements.txt` and the included Python `backend/` package. Set Firebase Admin credentials server-side using the protected `FIREBASE_SERVICE_ACCOUNT_JSON` environment variable.
+`vercel.json` sends `/api/*` to `api/index.py`, which exports `backend.main:app` for the Python ASGI runtime. Other paths serve the built Vite application. Vercel installs the lean root `requirements.txt`; its function configuration excludes frontend assets, tests, and docs. `requirements-cloudrun.txt` adds Uvicorn for local API execution and Cloud Run. Set Firebase Admin credentials server-side using the protected `FIREBASE_SERVICE_ACCOUNT_JSON` environment variable.
 
 ### Cloud Run
 
-`Dockerfile.backend` builds and runs only the Python API. The container listens on the platform-provided `PORT` (defaulting to `8080` for local container use). Cloud Run should use its attached service identity and Application Default Credentials for Firestore rather than a downloaded service-account key. The Vite frontend can remain on Vercel and call the Cloud Run service using the public `VITE_API_URL` setting.
+`Dockerfile.backend` installs `requirements-cloudrun.txt` and builds/runs only the Python API. The container listens on the platform-provided `PORT` (defaulting to `8080` for local container use). Cloud Run should use its attached service identity and Application Default Credentials for Firestore rather than a downloaded service-account key. The Vite frontend can remain on Vercel and call the Cloud Run service using the public `VITE_API_URL` setting.
 
 When frontend and API origins differ, configure `ALLOWED_ORIGINS` with the exact frontend origin. Same-origin Vercel routing does not require browser CORS.
 
