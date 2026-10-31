@@ -5,22 +5,27 @@ The repository has a Python-only backend and a React/TypeScript browser frontend
 ## Request and data flow
 
 ```mermaid
-flowchart LR
+flowchart TB
     Browser["React + Vite browser app"]
     Auth["Firebase Authentication"]
-    API["FastAPI API"]
+    Vercel["Vercel: frontend and Python function"]
+    CloudRun["Google Cloud Run: Python API container"]
+    API["FastAPI endpoints: /api/v1/*"]
     Gemini["Gemini API"]
     Weather["Open-Meteo"]
     Admin["Firebase Admin SDK"]
     Store[("Cloud Firestore")]
 
-    Browser --> Auth
-    Browser -->|"REST + Firebase ID token"| API
-    API --> Gemini
-    API --> Weather
+    Browser -->|"Sign in"| Auth
+    Browser -->|"Same-origin REST requests"| Vercel
+    Vercel -->|"Routes /api/*"| API
+    Browser -->|"VITE_API_URL + Firebase ID token"| CloudRun
+    CloudRun --> API
+    API -->|"AI requests"| Gemini
+    API -->|"Weather requests"| Weather
     API --> Admin
     Admin --> Store
-    Browser -->|"Firestore client SDK"| Store
+    Browser -->|"Firebase client SDK"| Store
 ```
 
 The browser obtains Firebase ID tokens and sends them as bearer tokens for protected API operations. The backend verifies tokens with Firebase Admin; it does not accept unsigned token payloads or issue a development identity. Firebase client configuration is public browser configuration. Gemini credentials and any Firebase Admin service-account credential remain server-side.
