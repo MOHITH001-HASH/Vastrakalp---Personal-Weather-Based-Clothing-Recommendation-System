@@ -42,7 +42,7 @@ The system features a **100% Python FastAPI backend** coupled with a modern **Re
 
 ## 2. Technology Stack
 
-### Backend Layer (100% Pure Python)
+### Backend Layer 
 - **Language**: Python 3.10+ / 3.11
 - **Framework**: FastAPI with Pydantic v2 schemas (`/backend`)
 - **Server**: Uvicorn ASGI Server
