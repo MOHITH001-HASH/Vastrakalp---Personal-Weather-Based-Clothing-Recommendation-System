@@ -743,7 +743,7 @@ export default function Planner() {
           {attendingOutfits && attendingOutfits.length > 0 ? (
             <div className="space-y-6">
               {attendingOutfits.map((attendee: any, aIdx: number) => {
-                const attendeeGarments = (attendee.selected_item_ids || [])
+                const attendeeGarments = (attendee.selected_item_ids || attendee.selected_garment_ids || [])
                   .map((id: string) => getGarment(id))
                   .filter(Boolean);
 
