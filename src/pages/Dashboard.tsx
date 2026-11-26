@@ -306,30 +306,49 @@ export default function Dashboard() {
     const primaryIds =
       primaryAttendee?.selected_item_ids ||
       primaryAttendee?.selected_garment_ids;
-    const memberIds =
-      member.selected_item_ids || member.selected_garment_ids;
 
-    if (Array.isArray(memberIds) && memberIds.length > 0) {
-      const items = memberIds
+    if (Array.isArray(primaryIds) && primaryIds.length > 0) {
+      const items = primaryIds
         .map((id: string) =>
           allGarments.find((g) => String(g.id) === String(id))
         )
         .filter(Boolean);
+
       if (items.length > 0) return items;
     }
     
     // 2. Members slot fallback schema
     const member = suggestion?.members?.[0];
+
     if (member) {
-      if (Array.isArray(member.selected_item_ids) && member.selected_item_ids.length > 0) {
-        const items = member.selected_item_ids
-          .map((id: string) => allGarments.find((g) => String(g.id) === String(id)))
+      const memberIds =
+        member.selected_item_ids || member.selected_garment_ids;
+
+      if (Array.isArray(memberIds) && memberIds.length > 0) {
+        const items = memberIds
+          .map((id: string) =>
+            allGarments.find((g) => String(g.id) === String(id))
+          )
           .filter(Boolean);
+
         if (items.length > 0) return items;
       }
-      const slotIds = [member.topId, member.bottomId, member.outerwearId, member.footwearId, ...(member.accessoryIds || [])].filter(Boolean);
+
+      const slotIds = [
+        member.topId,
+        member.bottomId,
+        member.outerwearId,
+        member.footwearId,
+        ...(member.accessoryIds || []),
+      ].filter(Boolean);
+
       if (slotIds.length > 0) {
-        const items = slotIds.map((id: string) => allGarments.find((g) => String(g.id) === String(id))).filter(Boolean);
+        const items = slotIds
+          .map((id: string) =>
+            allGarments.find((g) => String(g.id) === String(id))
+          )
+          .filter(Boolean);
+
         if (items.length > 0) return items;
       }
     }
