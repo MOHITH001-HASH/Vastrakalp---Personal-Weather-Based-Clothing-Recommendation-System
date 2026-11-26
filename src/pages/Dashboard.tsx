@@ -139,7 +139,39 @@ export default function Dashboard() {
     setWeatherError(null);
     try {
       const data = await api.getWeather(params);
-      setWeather(data);
+      const current = data?.current || {};
+      const location = data?.location || {};
+      const temperature = current.temperature_c ?? current.temperature ?? 22;
+      const apparentTemperature =
+        current.apparent_temp_c ?? current.apparentTemperature ?? temperature;
+
+      setWeather({
+        ...data,
+        location: {
+          ...location,
+          cityName: location.cityName || location.city || location.name || 'Local Area',
+        },
+        current: {
+          ...current,
+          temperature_c: temperature,
+          temperature_f:
+            current.temperature_f ?? current.temperatureF ?? (temperature * 9) / 5 + 32,
+          apparent_temp_c: apparentTemperature,
+          apparent_temp_f:
+            current.apparent_temp_f ??
+            current.apparentTemperatureF ??
+            (apparentTemperature * 9) / 5 + 32,
+          humidity_pct: current.humidity_pct ?? current.humidity ?? 60,
+          wind_speed_kmh: current.wind_speed_kmh ?? current.windSpeed ?? 0,
+          rain_chance_pct:
+            current.rain_chance_pct ?? current.precipitationProbability ?? 0,
+          weather_code: current.weather_code ?? current.weatherCode ?? 0,
+          condition: current.condition || 'Unknown',
+          icon: current.icon || 'Sun',
+          category: current.category || 'sunny',
+        },
+        styleAdvice: data?.styleAdvice || data?.advice,
+      });
       // Save last known location preference
       if (data?.location) {
         localStorage.setItem('vastrakalp_last_weather_loc', JSON.stringify(data.location));
