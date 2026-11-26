@@ -313,7 +313,8 @@ export default function Planner() {
     await handleGenerate();
   };
 
-  const getGarment = (id: string) => garments.find(g => g.id === id);
+  const getGarment = (id: string) =>
+    garments.find((garment) => String(garment.id) === String(id));
 
   const attendingOutfits = suggestion?.attending_outfits || suggestion?.attendee_outfits || [];
   const themeTitle = suggestion?.group_theme_title || suggestion?.palette_theme;
