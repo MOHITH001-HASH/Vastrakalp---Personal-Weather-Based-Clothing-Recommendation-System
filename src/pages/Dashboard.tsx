@@ -303,13 +303,21 @@ export default function Dashboard() {
 
     // 1. Primary HueSync attending_outfits schema
     const primaryAttendee = suggestion?.attending_outfits?.[0];
-    if (primaryAttendee?.selected_item_ids && Array.isArray(primaryAttendee.selected_item_ids) && primaryAttendee.selected_item_ids.length > 0) {
-      const items = primaryAttendee.selected_item_ids
-        .map((id: string) => allGarments.find((g) => String(g.id) === String(id)))
+    const primaryIds =
+      primaryAttendee?.selected_item_ids ||
+      primaryAttendee?.selected_garment_ids;
+    const memberIds =
+      member.selected_item_ids || member.selected_garment_ids;
+
+    if (Array.isArray(memberIds) && memberIds.length > 0) {
+      const items = memberIds
+        .map((id: string) =>
+          allGarments.find((g) => String(g.id) === String(id))
+        )
         .filter(Boolean);
       if (items.length > 0) return items;
     }
-
+    
     // 2. Members slot fallback schema
     const member = suggestion?.members?.[0];
     if (member) {
