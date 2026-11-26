@@ -85,12 +85,17 @@ export default function Planner() {
         }
         const data = await api.getWeather(params);
         if (data?.current) {
+          const current = data.current;
+
           setWeather({
-            temperature: data.current.temperature_c,
-            condition: data.current.condition || 'Clear',
-            precipitation: data.current.rain_chance_pct,
-            humidity: data.current.humidity_pct,
-            wind: `${data.current.wind_speed_kmh}km/h`
+            temperature: current.temperature ?? current.temperature_c ?? 24,
+            condition: current.condition || 'Clear',
+            precipitation:
+              current.precipitationProbability ??
+              current.rain_chance_pct ??
+              15,
+            humidity: current.humidity ?? current.humidity_pct ?? 65,
+            wind: `${current.windSpeed ?? current.wind_speed_kmh ?? 10}km/h`
           });
         }
       } catch (err) {
