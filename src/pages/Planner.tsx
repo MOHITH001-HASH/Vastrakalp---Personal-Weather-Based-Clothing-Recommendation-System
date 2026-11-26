@@ -202,49 +202,78 @@ export default function Planner() {
       }
 
       // Check if we are doing multi-person family styling
-      const isMultiPerson = targetAttendees.length > 1 || targetAttendees.some(id => id !== 'self');
+      const isMultiPerson =
+        targetAttendees.length > 1 ||
+        targetAttendees.some((id) => id !== 'self');
+
+      const plannerWeather = {
+        temp_c: weather.temperature,
+        apparent_temp_c: weather.temperature,
+        humidity_pct: weather.humidity,
+        rain_chance_pct: weather.precipitation,
+        condition: weather.condition
+      };
 
       let result: any = null;
+
       if (isMultiPerson && familyMembers.length > 0) {
         // Build partitioned family closets for each selected attendee
-        const family_closets = targetAttendees.map(attendeeId => {
+        const family_closets = targetAttendees.map((attendeeId) => {
           if (attendeeId === 'self') {
             const selfGarments = currentGarments.filter(
-              g => !g.memberId || g.memberId === 'self' || (user && g.memberId === user.uid)
+              (g) =>
+                !g.memberId ||
+                g.memberId === 'self' ||
+                (user && g.memberId === user.uid)
             );
+
             return {
               member_id: 'self',
               name: profile?.firstName || 'You',
               relationship: 'self',
-              garments: selfGarments
-            };
-          } else {
-            const member = familyMembers.find(m => m.id === attendeeId);
-            const memberGarments = currentGarments.filter(g => g.memberId === attendeeId);
-            return {
-              member_id: attendeeId,
-              name: member?.name || 'Family Member',
-              relationship: member?.relationship || 'family',
-              relation: member?.relation || member?.relationship,
-              age: member?.age,
-              gender: member?.gender,
-              notes: member?.notes,
-              garments: memberGarments
+              closet: selfGarments
             };
           }
+
+          const member = familyMembers.find((m) => m.id === attendeeId);
+          const memberGarments = currentGarments.filter(
+            (g) => g.memberId === attendeeId
+          );
+
+          return {
+            member_id: attendeeId,
+            name: member?.name || 'Family Member',
+            relationship: member?.relationship || 'family',
+            relation: member?.relation || member?.relationship,
+            age: member?.age,
+            gender: member?.gender,
+            notes: member?.notes,
+            closet: memberGarments
+          };
         });
 
-        result = await api.suggestFamilyOutfit(targetPrompt, weather, family_closets);
+        result = await api.suggestFamilyOutfit(
+          targetPrompt,
+          plannerWeather,
+          family_closets
+        );
         setSuggestion(result);
       } else {
         // Single user personal styling
         const selfGarments = currentGarments.filter(
-          g => !g.memberId || g.memberId === 'self' || (user && g.memberId === user.uid)
+          (g) =>
+            !g.memberId ||
+            g.memberId === 'self' ||
+            (user && g.memberId === user.uid)
         );
-        result = await api.suggestOutfit(targetPrompt, weather, selfGarments.length > 0 ? selfGarments : currentGarments);
+
+        result = await api.suggestOutfit(
+          targetPrompt,
+          plannerWeather,
+          selfGarments.length > 0 ? selfGarments : currentGarments
+        );
         setSuggestion(result);
       }
-
       // Automatic Voice Assistant Speech Feedback if TTS is enabled
       if (result && ttsEnabled) {
         const theme = result.group_theme_title || result.palette_theme || 'Coordinated Family Harmony';
